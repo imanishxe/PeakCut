@@ -49,7 +49,7 @@ def _frames(path: str | Path, count: int = MAX_FRAMES) -> np.ndarray:
     """The video as a few grey frames, spread through it."""
     try:
         dur = _duration(path)
-        rate = max(count / dur, 0.02) if dur > 0 else 0.2
+        rate = max(count / dur, 0.02) if dur > 0 else 1.0
         proc = subprocess.run(
             ["ffmpeg", "-v", "error", "-i", str(path),
              "-vf", f"fps={rate:.4f},scale={W}:{H},format=gray",
@@ -70,9 +70,22 @@ def _duration(path: str | Path) -> float:
         proc = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                "-of", "default=nw=1:nk=1", str(path)],
                               capture_output=True, text=True, timeout=60)
-        return float((proc.stdout or "").strip() or 0)
+        v = (proc.stdout or "").strip()
+        if v and v != "N/A":
+            return float(v)
     except Exception:  # noqa: BLE001
-        return 0.0
+        pass
+    try:
+        proc = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                               "-show_entries", "stream=duration",
+                               "-of", "default=nw=1:nk=1", str(path)],
+                              capture_output=True, text=True, timeout=60)
+        v = (proc.stdout or "").strip()
+        if v and v != "N/A":
+            return float(v)
+    except Exception:  # noqa: BLE001
+        pass
+    return 0.0
 
 
 def _profiles(frames: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -326,6 +339,46 @@ def _seen(path: str | Path, box, w: int, h: int, still: np.ndarray, light: np.nd
     return _finish(path, found, w, h, still)
 
 
+def _corner_fallback(still: np.ndarray, light: np.ndarray, w: int, h: int) -> dict | None:
+    """When edge peak detection finds no crisp borders (e.g. borderless facecams, dark rooms),
+    check the 4 standard corners for the one with webcam stillness characteristics distinct from the game."""
+    game = float(np.median(still))
+    if game < STILL_MIN:
+        return None
+    cut = max(STILL_MIN, STILL_FRAC * game)
+    mean_light = float(light.mean())
+    cw, ch = int(W * 0.28), int(H * 0.32)
+    corners = [
+        ("top-left", 0, 0, cw, ch),
+        ("top-right", W - cw, 0, W, ch),
+        ("bottom-left", 0, H - ch, cw, H),
+        ("bottom-right", W - cw, H - ch, W, H),
+    ]
+    candidates = []
+    for name, x0, y0, x1, y1 in corners:
+        patch_still = still[y0:y1, x0:x1]
+        patch_light = light[y0:y1, x0:x1]
+        if not patch_still.size or not patch_light.size:
+            continue
+        if float(patch_light.mean()) < 0.25 * mean_light or float(patch_light.mean()) < 8.0:
+            continue
+        moving = float(np.median(patch_still))
+        if moving <= cut and float((patch_still > cut).mean()) <= STILL_SHARE:
+            candidates.append((moving, name, x0, y0, x1, y1))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c[0])
+    _, best_name, bx0, by0, bx1, by1 = candidates[0]
+    bw_src = int(round(w * 0.25))
+    bh_src = int(round(h * 0.28))
+    x_src = 0 if "left" in best_name else w - bw_src
+    y_src = 0 if "top" in best_name else h - bh_src
+    return {
+        "x": x_src, "y": y_src, "w": bw_src, "h": bh_src,
+        "corner": best_name, "score": 0.6, "conf": "high",
+    }
+
+
 def detect(path: str | Path, ask=None) -> dict | None:
     """The facecam's box in the source, in source pixels, or None.
 
@@ -360,8 +413,22 @@ def detect(path: str | Path, ask=None) -> dict | None:
         if match and _overlap(match, hinted) >= MATCH:
             return _finish(path, match, w, h, still)
         seen = _seen(path, hinted, w, h, still, light)
+        if seen and seen.get("conf") == "high":
+            return seen
+        fx, fy, fw, fh = hinted
+        x0, y0, x1, y1 = fx * w, fy * h, (fx + fw) * w, (fy + fh) * h
+        if x1 - x0 >= w * MIN_SIZE and y1 - y0 >= h * MIN_SIZE:
+            return {
+                "x": int(round(x0)),
+                "y": int(round(y0)),
+                "w": int(round(x1 - x0)),
+                "h": int(round(y1 - y0)),
+                "corner": _corner(x0, y0, x1, y1, w, h),
+                "score": 1.0,
+                "conf": "high",
+            }
         if seen:
             return seen
     if not found:
-        return None
+        return _corner_fallback(still, light, w, h)
     return _finish(path, found[0], w, h, still)

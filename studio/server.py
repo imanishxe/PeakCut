@@ -1024,12 +1024,13 @@ def delete_my_account(request: Request, body: dict = Body(...)):
 
 @app.get("/media/{jid}/{name}")
 def media_file(jid: str, name: str, download: int = 0):
-    if not re.fullmatch(r"[\w\-]+\.(mp4|jpg)", name):
+    if not re.fullmatch(r"[\w\-]+\.(mp4|jpg|srt|ass)", name):
         raise HTTPException(404)
     f = Path(_job_or_404(jid)["dir"]) / "clips" / name
     if not f.is_file():
         raise HTTPException(404)
-    return FileResponse(f, filename=name if download else None, headers={"Cache-Control": "private, max-age=300"})
+    media_type = "text/plain" if name.endswith((".srt", ".ass")) else None
+    return FileResponse(f, filename=name if download else None, media_type=media_type, headers={"Cache-Control": "private, max-age=300"})
 
 
 # ================================================================ creators and live recording
@@ -1330,6 +1331,19 @@ def list_accounts():
 def remove_account(aid: str):
     accounts.remove(aid)
     return {"ok": True}
+
+
+@app.post("/api/accounts/instagram/token")
+def add_instagram_token(body: dict = Body(...)):
+    token = str(body.get("token", "")).strip()
+    if not token:
+        raise HTTPException(400, "Token is required")
+    try:
+        acc = accounts.instagram_add(token)
+        ctx.bump()
+        return acc
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
 
 # ---------------------------------------------------------------- connecting YouTube, Instagram and TikTok

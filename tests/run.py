@@ -65,7 +65,13 @@ def main() -> int:
                 ("fresh installs: ffmpeg, the speech model, AI errors", ["tests/test_tools.py"]),
                 ("the storage folder: full drive, open, move", ["tests/test_storage.py"]),
                 ("security: visitor address, email addresses, Google sign-in, prompts", ["tests/test_hardening.py"]),
-                ("long logs, the machine monitor, failed recordings, admin day totals", ["tests/test_robustness.py"])]
+                ("long logs, the machine monitor, failed recordings, admin day totals", ["tests/test_robustness.py"]),
+                ("Twitch chat spike gatekeeper (zero-token detection)", ["tests/test_chat_spike.py"]),
+                ("Selective AI token optimization (targeted snippet enhancement)", ["tests/test_token_opt.py"]),
+                ("High-performance transcription & subtitles (.srt/.ass)", ["tests/test_transcribe_pipeline.py"]),
+                ("Enhanced 9:16 framing & stacked layout", ["tests/test_framing_layout.py"]),
+                ("Circular rolling buffer & disk guard", ["tests/test_rolling_buffer.py"]),
+                ("Headless CLI / Watcher mode", ["tests/test_watch_cli.py"])]
         for name, args in runs:
             print(f"\n=== {name} ===", flush=True)
             r = subprocess.run([sys.executable, *args], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")

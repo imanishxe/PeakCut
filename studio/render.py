@@ -79,7 +79,8 @@ def install_fonts():
 
 
 LAYOUTS = {"blur": "Full frame + blurred fill", "zoom": "Zoomed in + blurred fill", "crop": "Fill the screen (centre crop)",
-           "gameplay": "Gameplay fills the screen, facecam in the corner"}
+           "gameplay": "Gameplay fills the screen, facecam in the corner",
+           "stacked": "Smart facecam stacked (facecam top, gameplay bottom)"}
 
 
 def _ts(t):
@@ -111,12 +112,15 @@ def _groups(words, per):
 
 def geometry(src_w, src_h, layout):
     """Where the video sits in the 1080x1920 frame, and where hook and captions go."""
-    if src_h >= src_w and layout != "crop":
+    if src_h >= src_w and layout not in ("crop", "stacked"):
         layout = "crop"  # already vertical or square: nothing to gain from a blurred fill
     if layout == "blur":
-        fg_h = min(H, int(round(W * src_h / src_w / 2)) * 2)
+        fg_h = min(H, int(round(W * src_h / src_w / 2)) * 2) if src_w else 608
     elif layout == "zoom":
         fg_h = 1000
+    elif layout == "stacked":
+        fg_h = min(H, int(round(W * src_h / src_w / 2)) * 2) if src_w else 608
+        return layout, fg_h, 720, 1500
     else:
         fg_h = H
     top = (H - fg_h) // 2
@@ -228,6 +232,50 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return head + "\n".join(ev) + "\n"
 
 
+def _srt_ts(t: float) -> str:
+    """Format seconds into standard HH:MM:SS,mmm timestamp for SubRip (.srt)."""
+    t = max(0.0, float(t))
+    h = int(t // 3600)
+    m = int((t % 3600) // 60)
+    s = int(t % 60)
+    ms = int(round((t - int(t)) * 1000))
+    if ms >= 1000:
+        s += 1
+        ms = 0
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def build_srt(words: list, start: float, end: float, max_words_per_line: int = 5) -> str:
+    """Generate standard SubRip (.srt) subtitles with word-level accuracy.
+
+    Words are grouped into natural, short subtitle cards (up to max_words_per_line or sentence ends),
+    timed relative to the clip start."""
+    inside = [dict(w, w=_clean(w["w"])) for w in words if w["s"] >= start - 0.05 and w["s"] < end]
+    inside = sorted((w for w in inside if w["w"]), key=lambda w: w["s"])
+    if not inside:
+        return ""
+    cards = []
+    cur = []
+    for w in inside:
+        if cur and (w["s"] - cur[-1]["e"] > 0.6 or len(cur) >= max_words_per_line or cur[-1]["w"][-1:] in ".!?"):
+            cards.append(cur)
+            cur = []
+        cur.append(w)
+    if cur:
+        cards.append(cur)
+
+    blocks = []
+    for i, card in enumerate(cards, start=1):
+        c_start = max(0.0, card[0]["s"] - start)
+        c_end = min(card[-1]["e"] - start + 0.15, end - start)
+        if c_end <= c_start:
+            c_end = c_start + 0.5
+        text = " ".join(w["w"] for w in card)
+        blocks.append(f"{i}\n{_srt_ts(c_start)} --> {_srt_ts(c_end)}\n{text}\n")
+
+    return "\n".join(blocks)
+
+
 PIP_W = 380            # how wide the facecam is in the 1080-wide frame
 PIP_MARGIN = 26
 
@@ -239,13 +287,29 @@ def _filter(layout, fg_h, facecam=None):
         fx, fy, fw, fh = (int(v) for v in facecam)
         if fw > 8 and fh > 8:
             pip_h = max(2, int(round(PIP_W * fh / fw)))
-            return (f"[0:v]fps={config.OUT_FPS},split=2[base][fc];"
+            return (f"fps={config.OUT_FPS},split=2[base][fc];"
                     f"[base]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[b];"
                     f"[fc]crop={fw}:{fh}:{fx}:{fy},scale={PIP_W}:{pip_h},setsar=1[p];"
                     f"[b][p]overlay={W - PIP_W - PIP_MARGIN}:{PIP_MARGIN}[v0];")
-    if layout == "crop" or (layout == "gameplay" and not facecam):
-        return f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
-    return (f"[0:v]fps={config.OUT_FPS},split=2[a][b];"
+    if layout == "stacked" and facecam:
+        # Facecam cropped and scaled to fill 1080x720 on top, gameplay fills 1080x1200 on bottom.
+        fx, fy, fw, fh = (int(v) for v in facecam)
+        if fw > 8 and fh > 8:
+            top_h = 720
+            bot_h = H - top_h
+            return (f"fps={config.OUT_FPS},split=2[top_src][bot_src];"
+                    f"[top_src]crop={fw}:{fh}:{fx}:{fy},scale={W}:{top_h}:force_original_aspect_ratio=increase,crop={W}:{top_h},setsar=1[top];"
+                    f"[bot_src]scale={W}:{bot_h}:force_original_aspect_ratio=increase,crop={W}:{bot_h},setsar=1[bot];"
+                    f"[top][bot]vstack=inputs=2[v0];")
+    if layout == "crop" or (layout in ("gameplay", "stacked") and not facecam):
+        if layout == "stacked" and not facecam:
+            return (f"fps={config.OUT_FPS},split=2[a][b];"
+                    f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
+                    f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
+                    f"[b]scale={W}:{fg_h}:force_original_aspect_ratio=increase,crop={W}:{fg_h}[fg];"
+                    f"[bg][fg]overlay=0:(H-h)/2,setsar=1[v0];")
+        return f"fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
+    return (f"fps={config.OUT_FPS},split=2[a][b];"
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
             f"[b]scale={W}:{fg_h}:force_original_aspect_ratio=increase,crop={W}:{fg_h}[fg];"
@@ -257,6 +321,8 @@ def _hook_y(layout, hook_y, facecam=None):
     across the top would run under it: it goes just below the picture instead."""
     if layout == "gameplay" and facecam and len(facecam) == 4 and facecam[2] > 8:
         return PIP_MARGIN + int(round(PIP_W * facecam[3] / facecam[2])) + 32
+    if layout == "stacked":
+        return 720
     return hook_y
 
 
@@ -264,37 +330,81 @@ _qsv_ok = None
 RENDER_SECONDS = 600      # one clip's video encode; far beyond normal, so a frozen encoder is stopped, not waited on
 
 
-def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, src_w: int, src_h: int) -> dict:
-    """Writes <name>.mp4, <name>.jpg and <name>.ass into out_dir. Returns file names."""
+def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, src_w: int, src_h: int,
+                is_live: bool = False) -> dict:
+    """Writes <name>.mp4, <name>.jpg and <name>.ass into out_dir. Returns file names.
+
+    Set is_live=True for clips assembled from live stream buffer segments.  Those are
+    short concat .ts files whose audio and video may have different PTS baselines; the
+    coarse pre-input seek that works well for long downloaded files causes the two
+    streams to drift out of sync, so live clips are trimmed from the beginning instead.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     start, end = clip["start"], clip["end"]
     layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, clip.get("layout", "blur"))
     face = clip.get("facecam")
     if layout == "gameplay" and not (face and len(face) == 4):
         layout = "crop"     # no webcam found: the game fills the screen, which is still the right shape
+    elif layout == "stacked" and not (face and len(face) == 4):
+        layout = "blur"     # no webcam found: center game with blurred fill
     hook_y = _hook_y(layout, hook_y, face)
     ass = build_ass(words if clip.get("captions", True) else [], start, end, clip.get("hook", ""), clip.get("style", "bounce"),
                     clip.get("highlight_words", []), hook_y, cap_y)
+    srt = build_srt(words if clip.get("captions", True) else [], start, end)
     # The clip is made in a short work folder and moved into place afterwards. The caption step of ffmpeg cannot
     # open files whose full path is longer than 260 characters on Windows, which a data folder deep inside other
     # folders easily reaches. Inside the work folder every name is short and relative (a drive colon would also
     # break the filter syntax).
     work = Path(tempfile.mkdtemp(prefix="pk"))
     try:
-        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face)
+        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, srt=srt, face=face,
+                          is_live=is_live)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None) -> dict:
+def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, srt: str = "", face=None,
+               is_live: bool = False) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
+    (work / f"{name}.srt").write_text(srt, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
-    fc = _filter(layout, fg_h, face) + f"[v0]ass={name}.ass:fontsdir=f[v]"
-    base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src),
-            "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+    dur = end - start
+    if is_live:
+        # Live clips come from a short concat .ts file built from stream buffer segments.
+        # Those segments carry the stream's wall-clock PTS (not 0-based).  After a coarse
+        # pre-input seek (-ss) ffmpeg lands video at the nearest video keyframe and audio at
+        # the nearest audio frame independently, so their PTS baselines can differ by a second
+        # or two — audio ends up ahead of the picture.
+        #
+        # Because the src file is short (clip + a few seconds of padding, never more than
+        # a few minutes), we simply decode from the beginning and trim to the exact start/end.
+        # This is slower than a coarse seek by a few seconds at most, but always frame-perfect.
+        fc = (f"[0:v]trim=start={start:.2f}:end={end:.2f},setpts=PTS-STARTPTS,"
+              + _filter(layout, fg_h, face)
+              + f"[v0]ass={name}.ass:fontsdir=f[v];"
+              f"[0:a:0]atrim=start={start:.2f}:end={end:.2f},asetpts=PTS-STARTPTS,"
+              f"aresample=async=1000:first_pts=0,loudnorm=I=-14:TP=-1.5:LRA=11[a]")
+        inp = ["-i", str(src.resolve())]
+    else:
+        # For pre-recorded (downloaded) videos the file may be hours long.  A coarse seek jumps
+        # near the clip, then the trim filter cuts the last 10 seconds to the exact frame.
+        # Both streams start from the same position after a keyframe-aligned seek on a regular
+        # mp4/mkv, so there is no PTS drift risk here.
+        coarse = start - 10.0 if start > 15.0 else 0.0
+        v_start = 10.0 if start > 15.0 else start
+        v_end = v_start + dur
+        fc = (f"[0:v]trim=start={v_start:.2f}:end={v_end:.2f},setpts=PTS-STARTPTS,"
+              + _filter(layout, fg_h, face)
+              + f"[v0]ass={name}.ass:fontsdir=f[v];"
+              f"[0:a:0]atrim=start={v_start:.2f}:end={v_end:.2f},asetpts=PTS-STARTPTS,"
+              f"aresample=async=1000:first_pts=0,loudnorm=I=-14:TP=-1.5:LRA=11[a]")
+        inp = ["-ss", f"{coarse:.2f}", "-i", str(src.resolve())] if coarse > 0 else ["-i", str(src.resolve())]
+    base = ["ffmpeg", "-y", "-v", "error", "-avoid_negative_ts", "make_zero"] + inp + [
+            "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
+            "-fps_mode", "cfr", "-r", str(config.OUT_FPS),
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt"]
     encoders = []
     if _qsv_ok is not False:
@@ -316,6 +426,6 @@ def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layo
     cover_t = min(1.2, (end - start) / 2)
     run(["ffmpeg", "-y", "-v", "error", "-ss", f"{cover_t:.2f}", "-i", f"{name}.mp4", "-frames:v", "1",
          "-q:v", "3", f"{name}.jpg"], cwd=work)
-    for ext in ("mp4", "jpg", "ass"):
+    for ext in ("mp4", "jpg", "ass", "srt"):
         shutil.move(str(work / f"{name}.{ext}"), str(out_dir / f"{name}.{ext}"))
-    return {"file": f"{name}.mp4", "cover": f"{name}.jpg", "layout": layout}
+    return {"file": f"{name}.mp4", "cover": f"{name}.jpg", "ass": f"{name}.ass", "srt": f"{name}.srt", "layout": layout}

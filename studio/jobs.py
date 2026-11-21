@@ -381,9 +381,30 @@ def render_one(job, clip, words):
         src = Path(clip["src"]) if clip.get("src") else Path(job["source_path"])
         if not clip.get("src"):
             clip["end"] = min(clip["end"], job["duration"])
+        if "width" not in job or "height" not in job:
+            meta = media.probe(src)
+            job.update(width=meta["width"], height=meta["height"])
+        if clip.get("layout") in ("gameplay", "stacked") and not clip.get("facecam"):
+            if job.get("facecam"):
+                clip["facecam"] = job["facecam"]
+            else:
+                try:
+                    usage.set_context(job.get("creator"), job.get("title") or "")
+                    box = facecam.detect(src, ask=brain.look_for_facecam)
+                    if box:
+                        clip["facecam"] = [box["x"], box["y"], box["w"], box["h"]]
+                        job["facecam"] = clip["facecam"]
+                        save(job)
+                except Exception:
+                    pass
         local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=roman.to_roman(clip.get("hook") or ""))
         near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
-        out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
+        # Live clips have a "src" pointing at a short .src.ts concat file; pre-recorded clips
+        # use the downloaded source file (source_path) or an exact downloaded section.
+        # The two need different ffmpeg strategies to keep audio and video locked together.
+        is_live = bool(clip.get("src")) and (job.get("kind") == "live" or bool(job.get("live")))
+        out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"],
+                                 is_live=is_live)
         clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None)
         post = {k: clip[k] for k in ("title", "description", "hashtags", "hook", "start", "end", "score")}
         (d / "clips" / f"{clip['id']}.json").write_text(json.dumps(post, indent=1), encoding="utf-8")
@@ -496,7 +517,7 @@ def _fetch_piece(job, clip, full_audio):
     try:
         want = max(0.0, clip["start"] - PAD)
         piece = media.download_section(job["source"]["url"], d / "clips", f"{clip['id']}.src", want,
-                                       min(job["duration"], clip["end"] + PAD), int(o["quality"]))
+                                       min(job["duration"], clip["end"] + PAD), int(o["quality"]), exact=True)
         wav = d / "clips" / f"{clip['id']}.wav"
         media.extract_audio(piece, wav)
         part = media.load_audio(wav)
@@ -537,7 +558,7 @@ def _facecam(job) -> list | None:
         box = facecam.detect(path, ask=brain.look_for_facecam)
     except Exception:  # noqa: BLE001 - a missing facecam is not a failure
         return None
-    if not box or box.get("conf") != "high":
+    if not box:
         return None
     job["facecam"] = [box["x"], box["y"], box["w"], box["h"]]
     return job["facecam"]
@@ -757,9 +778,9 @@ def _run_job(job):
             c.update(id=f"clip{len(job['clips']) + 1:02d}", start=round(c["start"] + shift, 2),
                      end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"],
                      captions=o.get("captions", True), status="queued", version=0)
-            # Only the gameplay layout uses a webcam, so it is only looked for then, and only once: a
+            # Gameplay and stacked layouts use a webcam, so it is only looked for then, and only once: a
             # stream with no webcam is not looked for again on every clip of it.
-            if o["layout"] == "gameplay" and face is False:
+            if o["layout"] in ("gameplay", "stacked") and face is False:
                 face = _facecam(job)
             if face:
                 c["facecam"] = face

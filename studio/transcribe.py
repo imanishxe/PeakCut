@@ -273,9 +273,65 @@ def _decode_remote(pieces: list) -> list:
     return [(p["tokens"], p["timestamps"]) for p in got]
 
 
-def transcribe(audio: np.ndarray, on_progress=None) -> list:
+BACKEND = os.environ.get("PEAKCUT_ASR_BACKEND", "sherpa").strip().lower()
+
+
+def clean_asr_words(words: list) -> list:
+    """Filter out speech recognition hallucinations, rapid repetition loops, and zero-duration artifacts."""
+    if not words:
+        return []
+    clean = []
+    repeat_count = 0
+    for w in words:
+        word_text = str(w.get("w", "")).strip()
+        s, e = float(w.get("s", 0.0)), float(w.get("e", 0.0))
+        if not word_text or e <= s:
+            continue
+        # Check for rapid repetition loops (e.g. background music causing ASR to repeat the same word)
+        if clean and clean[-1]["w"].lower() == word_text.lower() and (s - clean[-1]["s"]) < 0.4:
+            repeat_count += 1
+            if repeat_count >= 2:
+                continue
+        else:
+            repeat_count = 0
+        clean.append({"w": word_text, "s": round(s, 2), "e": round(e, 2)})
+
+    for i, w in enumerate(clean):
+        nxt = clean[i + 1]["s"] if i + 1 < len(clean) else w["e"] + 0.4
+        w["e"] = round(max(w["s"] + 0.08, min(nxt, max(w["e"], w["s"] + 0.6))), 2)
+
+    return clean
+
+
+def transcribe_whisper(audio: np.ndarray, model_name: str = "base") -> list:
+    """Fallback transcription using openai-whisper if installed and requested."""
+    import importlib.util
+    if not importlib.util.find_spec("whisper"):
+        raise RuntimeError("openai-whisper is not installed. Using sherpa-onnx.")
+    import whisper
+    if audio.dtype == np.int16:
+        audio_f32 = audio.astype(np.float32) / 32768.0
+    else:
+        audio_f32 = audio.astype(np.float32)
+    model = whisper.load_model(model_name)
+    result = model.transcribe(audio_f32, word_timestamps=True)
+    words = []
+    for seg in result.get("segments", []):
+        for w in seg.get("words", []):
+            words.append({"w": w["word"].strip(), "s": round(w["start"], 2), "e": round(w["end"], 2)})
+    return clean_asr_words(words)
+
+
+def transcribe(audio: np.ndarray, on_progress=None, backend: str = None) -> list:
     """Returns [{'w': word, 's': start_sec, 'e': end_sec}, ...] for the whole audio.
     Speech is cut at quiet moments into 12-24 s pieces; silent pieces are skipped."""
+    active_backend = (backend or BACKEND).lower()
+    if active_backend == "whisper":
+        try:
+            return transcribe_whisper(audio)
+        except Exception:
+            pass  # Fall back to high-performance sherpa-onnx
+
     global _remote_down_until
     words = []
     todo = []
@@ -339,8 +395,4 @@ def transcribe(audio: np.ndarray, on_progress=None) -> list:
                 if words and words[-1]["w"] == w["w"] and words[-1]["s"] == w["s"]:
                     continue  # the model sometimes says the same word twice at the same moment
                 words.append(w)
-    # A word lasts until the next one starts, capped so pauses stay pauses.
-    for i, w in enumerate(words):
-        nxt = words[i + 1]["s"] if i + 1 < len(words) else w["e"] + 0.4
-        w["e"] = round(max(w["s"] + 0.08, min(nxt, max(w["e"], w["s"] + 0.6))), 2)
-    return words
+    return clean_asr_words(words)

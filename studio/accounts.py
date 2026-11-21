@@ -182,7 +182,8 @@ def connect_url(platform: str) -> str:
             "access_type": "offline", "prompt": "consent", "state": state})
     if platform == "instagram":
         return "https://www.instagram.com/oauth/authorize?" + urlencode({
-            "client_id": cid, "redirect_uri": redirect, "response_type": "code", "scope": IG_SCOPES, "state": state})
+            "client_id": cid, "redirect_uri": redirect, "response_type": "code", "scope": IG_SCOPES,
+            "state": state})
     return "https://www.tiktok.com/v2/auth/authorize/?" + urlencode({
         "client_key": cid, "redirect_uri": redirect, "response_type": "code", "scope": TT_SCOPES, "state": state})
 
@@ -366,12 +367,27 @@ def youtube_views(acc, ids: list) -> dict:
     return out
 
 
-# ------------------------------------------------------------------ Instagram (Instagram Login, professional accounts)
+# ------------------------------------------------------------------ Instagram (Facebook Login & Instagram API)
 def _instagram_finish(code: str) -> dict:
     cid, secret = app_keys("instagram")
+    redirect = redirect_for("instagram")
+
+    # Try Facebook OAuth token exchange first (for apps configured via Facebook Login for Business)
+    try:
+        resp = httpx.post("https://graph.facebook.com/v21.0/oauth/access_token", data={
+            "client_id": cid, "client_secret": secret, "redirect_uri": redirect, "code": code
+        }, timeout=30)
+        if resp.status_code == 200:
+            data = resp.json()
+            tok = data.get("access_token")
+            if tok:
+                return _instagram_save(tok)
+    except Exception:
+        pass
+
     short = _check(httpx.post("https://api.instagram.com/oauth/access_token", data={
         "client_id": cid, "client_secret": secret, "grant_type": "authorization_code",
-        "redirect_uri": redirect_for("instagram"), "code": code}, timeout=30), "Instagram sign-in").json()
+        "redirect_uri": redirect, "code": code}, timeout=30), "Instagram sign-in").json()
     if isinstance(short.get("data"), list) and short["data"]:
         short = short["data"][0]
     if "instagram_business_content_publish" not in str(short.get("permissions", "instagram_business_content_publish")):
@@ -383,14 +399,71 @@ def _instagram_finish(code: str) -> dict:
 
 
 def _instagram_save(token: str) -> dict:
-    me = _check(httpx.get(f"{IG}/me", params={"fields": "user_id,username,account_type"},
-                          headers={"Authorization": f"Bearer {token}"}, timeout=30), "Reading the Instagram account").json()
-    kind = str(me.get("account_type") or "")
-    acc = {"id": f"ig_{me['user_id']}", "platform": "instagram", "name": "@" + me["username"], "added": time.time(),
-           "user_id": str(me["user_id"]), "token": token, "token_time": time.time(),
-           "detail": {"BUSINESS": "Business account", "MEDIA_CREATOR": "Creator account"}.get(kind.upper(), "")}
-    _put(acc)
-    return acc
+    token = token.strip()
+    # 1. Try direct Instagram Graph API node (Instagram Login / Basic Display)
+    try:
+        r = httpx.get(f"{IG}/me", params={"fields": "id,username,account_type"},
+                      headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        if r.status_code == 200:
+            me = r.json()
+            kind = str(me.get("account_type") or "")
+            uid = str(me.get("id") or me.get("user_id"))
+            acc = {"id": f"ig_{uid}", "platform": "instagram", "name": "@" + str(me.get("username", "instagram")), "added": time.time(),
+                   "user_id": uid, "token": token, "token_time": time.time(),
+                   "api_base": IG,
+                   "detail": {"BUSINESS": "Business account", "MEDIA_CREATOR": "Creator account"}.get(kind.upper(), "Instagram account")}
+            _put(acc)
+            return acc
+    except Exception:
+        pass
+
+    # 2. Try Facebook Graph API node for linked Instagram Business accounts
+    try:
+        # If app credentials exist and it looks like a user token, attempt to exchange for a 60-day token first
+        cid, secret = app_keys("instagram")
+        if cid and secret and token.startswith("EA"):
+            try:
+                ex = httpx.get("https://graph.facebook.com/v21.0/oauth/access_token", params={
+                    "grant_type": "fb_exchange_token", "client_id": cid, "client_secret": secret,
+                    "fb_exchange_token": token
+                }, timeout=15)
+                if ex.status_code == 200:
+                    ex_data = ex.json()
+                    if ex_data.get("access_token"):
+                        token = ex_data["access_token"]
+            except Exception:
+                pass
+
+        r = httpx.get("https://graph.facebook.com/v21.0/me/accounts",
+                      params={"fields": "name,access_token,instagram_business_account{id,username}"},
+                      headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        if r.status_code == 200:
+            pages = r.json().get("data", [])
+            for p in pages:
+                ig_biz = p.get("instagram_business_account")
+                if ig_biz:
+                    page_token = p.get("access_token") or token
+                    acc = {"id": f"ig_{ig_biz['id']}", "platform": "instagram",
+                           "name": "@" + ig_biz["username"], "added": time.time(),
+                           "user_id": str(ig_biz["id"]), "token": page_token, "token_time": time.time(),
+                           "api_base": "https://graph.facebook.com/v21.0",
+                           "detail": f"Linked via Page '{p.get('name', '')}'"}
+                    _put(acc)
+                    return acc
+            if pages:
+                page_names = ", ".join(f"'{p.get('name', 'Page')}'" for p in pages)
+                raise ValueError(f"Found Facebook Page(s) {page_names}, but no Instagram account is connected to them. In your Facebook Page settings (or Instagram app), link your Instagram Professional account to the Page.")
+    except ValueError:
+        raise
+    except Exception:
+        pass
+
+    raise ValueError(
+        "Could not find an Instagram Professional account linked to your Facebook account. "
+        "To fix this: 1) Switch your Instagram account to Professional (Creator or Business), "
+        "2) Connect it to a Facebook Page (In Instagram: Edit Profile -> Page -> Connect or create Page), "
+        "then connect again."
+    )
 
 
 def instagram_add(token: str) -> dict:
@@ -401,10 +474,23 @@ def instagram_add(token: str) -> dict:
 def _ig_token(acc) -> str:
     if time.time() - acc.get("token_time", 0) > 7 * 86400:  # tokens last 60 days; refresh weekly
         try:
-            r = _check(httpx.get(f"{IG}/refresh_access_token", params={"grant_type": "ig_refresh_token"},
-                                 headers={"Authorization": f"Bearer {acc['token']}"}, timeout=30), "Refreshing").json()
-            acc.update(token=r["access_token"], token_time=time.time())
-            _put(acc)
+            token = acc["token"]
+            base = acc.get("api_base", "")
+            if base.startswith("https://graph.facebook.com") or token.startswith("EA"):
+                cid, secret = app_keys("instagram")
+                if cid and secret:
+                    r = httpx.get("https://graph.facebook.com/v21.0/oauth/access_token", params={
+                        "grant_type": "fb_exchange_token", "client_id": cid, "client_secret": secret,
+                        "fb_exchange_token": token
+                    }, timeout=30)
+                    if r.status_code == 200:
+                        acc.update(token=r.json().get("access_token", token), token_time=time.time())
+                        _put(acc)
+            else:
+                r = _check(httpx.get(f"{IG}/refresh_access_token", params={"grant_type": "ig_refresh_token"},
+                                     headers={"Authorization": f"Bearer {token}"}, timeout=30), "Refreshing").json()
+                acc.update(token=r["access_token"], token_time=time.time())
+                _put(acc)
         except Exception:  # noqa: BLE001 - keep using the current token until it truly expires
             pass
     return acc["token"]
@@ -412,25 +498,29 @@ def _ig_token(acc) -> str:
 
 def instagram_upload(acc, path: Path, caption: str, job_id: str = ""):
     """A Reel. On a public site Instagram fetches the clip from a one-hour signed link; on a computer it cannot
-    reach, the file is sent instead (only possible for some app types)."""
+    reach, the file is sent instead (resumable upload)."""
     token = _ig_token(acc)
     auth = {"Authorization": f"Bearer {token}"}
     uid = acc["user_id"]
+    base = acc.get("api_base") or ("https://graph.facebook.com/v21.0" if token.startswith("EA") else IG)
+
     if config.PUBLIC_URL.startswith("https://") and job_id:
-        box = _check(httpx.post(f"{IG}/{uid}/media", data={"media_type": "REELS", "video_url": clip_link(job_id, path.name),
+        box = _check(httpx.post(f"{base}/{uid}/media", data={"media_type": "REELS", "video_url": clip_link(job_id, path.name),
                                                            "caption": caption[:2200], "share_to_feed": "true"},
                                 headers=auth, timeout=60), "Starting the Instagram post").json()
     else:
-        box = _check(httpx.post(f"{IG}/{uid}/media", data={"media_type": "REELS", "upload_type": "resumable",
+        box = _check(httpx.post(f"{base}/{uid}/media", data={"media_type": "REELS", "upload_type": "resumable",
                                                            "caption": caption[:2200], "share_to_feed": "true"},
                                 headers=auth, timeout=60), "Starting the Instagram upload").json()
+        upload_uri = box.get("uri") or f"{IG_UPLOAD}/{box['id']}"
+        size = path.stat().st_size
         with path.open("rb") as f:
-            _check(httpx.post(f"{IG_UPLOAD}/{box['id']}", content=f.read(),
+            _check(httpx.post(upload_uri, content=f.read(),
                               headers={"Authorization": f"OAuth {token}", "offset": "0",
-                                       "file_size": str(path.stat().st_size)}, timeout=900),
-                   "Uploading to Instagram (posting from a computer needs a public https address)")
+                                       "file_size": str(size)}, timeout=900),
+                   "Uploading to Instagram")
     for _ in range(90):
-        st = _check(httpx.get(f"{IG}/{box['id']}", params={"fields": "status_code,status"}, headers=auth, timeout=30),
+        st = _check(httpx.get(f"{base}/{box['id']}", params={"fields": "status_code,status"}, headers=auth, timeout=30),
                     "Checking the Instagram upload").json()
         if st.get("status_code") in ("FINISHED", "PUBLISHED"):
             break
@@ -439,19 +529,21 @@ def instagram_upload(acc, path: Path, caption: str, job_id: str = ""):
         time.sleep(6)
     else:
         raise RuntimeError("Instagram took too long to process the video.")
-    pub = _check(httpx.post(f"{IG}/{uid}/media_publish", data={"creation_id": box["id"]}, headers=auth, timeout=60),
+    pub = _check(httpx.post(f"{base}/{uid}/media_publish", data={"creation_id": box["id"]}, headers=auth, timeout=60),
                  "Publishing on Instagram").json()
     link = ""
     try:
-        link = httpx.get(f"{IG}/{pub['id']}", params={"fields": "permalink"}, headers=auth, timeout=30).json().get("permalink", "")
+        link = httpx.get(f"{base}/{pub['id']}", params={"fields": "permalink"}, headers=auth, timeout=30).json().get("permalink", "")
     except Exception:  # noqa: BLE001
         pass
     return pub["id"], link
 
 
 def instagram_views(acc, media_id: str):
-    r = httpx.get(f"{IG}/{media_id}/insights", params={"metric": "views"},
-                  headers={"Authorization": f"Bearer {_ig_token(acc)}"}, timeout=30)
+    token = _ig_token(acc)
+    base = acc.get("api_base") or ("https://graph.facebook.com/v21.0" if token.startswith("EA") else IG)
+    r = httpx.get(f"{base}/{media_id}/insights", params={"metric": "views"},
+                  headers={"Authorization": f"Bearer {token}"}, timeout=30)
     if r.status_code != 200:
         return None
     data = r.json().get("data", [])

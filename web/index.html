@@ -391,6 +391,10 @@ img.av{object-fit:cover}
 .lay-prev .ph i{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:16px;background:linear-gradient(135deg,#FF8B33,#FFB27A)}
 .lay-prev.zoom .ph i{left:-6px;right:-6px;height:24px}
 .lay-prev.crop .ph i{left:0;right:0;top:0;height:100%;transform:none}
+.lay-prev.gameplay .ph i{left:0;right:0;top:0;height:100%;transform:none}
+.lay-prev.gameplay .ph::after{content:"";position:absolute;top:3px;right:3px;width:10px;height:8px;border-radius:2px;background:#FFD7B5;z-index:2}
+.lay-prev.stacked .ph i{left:0;right:0;top:0;height:18px;transform:none;background:#FFD7B5}
+.lay-prev.stacked .ph::after{content:"";position:absolute;left:0;right:0;bottom:0;height:28px;background:linear-gradient(135deg,#FF8B33,#FFB27A)}
 .seg{display:flex;gap:4px;background:#fff;border-radius:10px;padding:4px}
 .composer.compact .seg{background:var(--muted)}
 .seg button{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;border:0;border-radius:7px;background:transparent;color:var(--dim);font-size:13px;font-weight:600;cursor:pointer;transition:background-color .15s ease,color .15s ease}
@@ -1122,7 +1126,7 @@ function statusBadge(c) {
   const on = liveOn(c);
   if (on.length) { const [k, p] = on[0]; return `<span class="sbadge live"><i></i>Live on ${PLAT[k].name}${p.viewers ? " · " + fmtK(p.viewers) + " watching" : ""}</span>`; }
   if (!Object.keys(c.channels || {}).length) return `<span class="sbadge">No channel yet</span>`;
-  return `<span class="sbadge"><i></i>Offline${c.auto_watch ? " · records when live" : ""}</span>`;
+  return `<span class="sbadge"><i></i>Offline</span>`;
 }
 const cav = c => { const r = c.live_job || liveOn(c).length ? " ring" : "";
   return c.profile?.pic && c.profile.channel === c.channel ? `<img class="avatar${r}" src="${avatarUrl(c)}" alt="">` : `<span class="avatar${r}">${esc((c.name || "?")[0].toUpperCase())}</span>`; };
@@ -1389,7 +1393,7 @@ function drawAdd(variant) {
     </div></div></form>`;
   drawAtt();
 }
-const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", gameplay:"Gameplay + facecam"};
+const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", gameplay:"Gameplay + facecam", stacked:"Facecam stacked"};
 const CAP_LOOK = {bounce:{font:"'Archivo Black'", hl:"#FFFF00", up:true}, hype:{font:"Anton", hl:"#FF3C3C", up:true}, clean:{font:"Poppins", hl:"#6BD7FF", up:false, w:800}};
 function capPrev(k) {
   const s = CAP_LOOK[k] || {font:"inherit", hl:"#FF8B33", up:true};
@@ -1701,9 +1705,9 @@ function clipHtml(j, c) {
     </div></article>`;
 }
 function spark(vals, cls, lo, hi) { return `<div class="spark ${cls}">${vals.map(v => `<i style="height:${Math.max(4, Math.min(100, (v - lo) / (hi - lo) * 100))}%"></i>`).join("")}</div>`; }
-const EVERY = [[1, "1 min", ""], [2, "2 min", ""], [3, "3 min", ""], [5, "5 min", ""], [10, "10 min", ""]];
+const EVERY = [[0, "Spikes only", "Combined signals + AI"], [1, "1 min", ""], [2, "2 min", ""], [3, "3 min", ""], [5, "5 min", ""], [10, "10 min", ""]];
 function everyPick(cid, v) {
-  const cur = EVERY.find(x => x[0] === Number(v)) || EVERY[2];
+  const cur = EVERY.find(x => x[0] === Number(v)) || EVERY[3];
   return `<div class="pick evpick"><input type="hidden" data-every="${esc(cid || "")}" value="${cur[0]}">
     <button type="button" class="evbtn pick-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="How often the AI checks"><span class="pv">${cur[1]}</span>${ic("caret").replace("<svg", '<svg class="car"')}</button>
     <div class="pick-menu" role="listbox">${EVERY.map(([k, l, h]) => `<button type="button" class="pick-opt" role="option" data-v="${k}" aria-selected="${k === cur[0]}"><span class="pl">${l}</span>${h ? `<small class="ph">${h}</small>` : ""}${ic("check").replace("<svg", '<svg class="tick"')}</button>`).join("")}</div></div>`;
@@ -1716,14 +1720,14 @@ function liveHtml(j) {
       <div class="lc-acts"><button class="btn primary" data-act="clipnow" data-j="${j.id}" data-s="30">${ic("scissors")}Clip last 30s</button>
         <button class="btn" data-act="clipnow" data-j="${j.id}" data-s="60">Last 60s</button>
         <button class="btn danger" data-act="stoplive" data-j="${j.id}">${ic("stop")}Stop</button></div></div>
-    <div class="stats"><div class="stat"><b>${fmt(L.elapsed)}</b><span>Recorded</span></div><div class="stat"><b>${Math.round(L.buffer_sec / 60)} min</b><span>Kept in buffer</span></div>
-      <div class="stat">${everyPick(j.creator, L.every_min ?? 3)}<span>${L.every_min === 0 ? (L.auto?.warming ? "AI checks: learning the stream" : L.auto?.waiting ? "AI checks: jump spotted, checking soon" : `AI checks on jumps · ${L.auto?.spikes || 0} so far`) : "AI checks every"}</span></div>
+    <div class="stats"><div class="stat"><b>${fmt(L.elapsed)}</b><span>Recorded</span></div><div class="stat"><b>${Math.round(L.buffer_sec / 60)} min${L.buffer_mb ? ` (${L.buffer_mb} MB)` : ""}</b><span>Kept in buffer</span></div>
+      <div class="stat">${everyPick(j.creator, L.every_min ?? 3)}<span>${L.every_min === 0 ? "Spikes only (Combined + AI)" : "AI checks every"}</span></div>
       <div class="stat"><b>${L.checks}</b><span>AI calls${L.skipped ? ` · ${L.skipped} skipped` : ""}${L.rejected ? ` · ${L.rejected} turned down` : ""}</span></div><div class="stat"><b>${j.clips.length}</b><span>Clips so far</span></div>
       ${L.pending_clips ? `<div class="stat"><b>${L.pending_clips}</b><span>Hand clip being prepared</span></div>` : ""}</div>
     <div class="meters">
       <div class="meter"><h4>Loudness, last minute</h4>${spark(L.level, "", -55, -8)}</div>
-      ${L.chat ? `<div class="meter"><h4>Chat messages per second</h4>${spark(L.chat, "chat", 0, Math.max(4, ...L.chat))}</div>` : ""}
-      <div class="meter"><h4>Latest AI decisions</h4><div class="said" style="justify-content:flex-start;color:var(--text)">${(L.verdicts || []).length ? L.verdicts.slice(0, 4).map(v => `<div>${fmt(v.t)} · ${v.transcript != null ? "words " + v.transcript : ""}${v.reaction != null ? " · reaction " + v.reaction : ""} · <span class="sub">${esc(v.result)}</span></div>`).join("") : "<div class='sub'>First check soon…</div>"}</div></div>
+      <div class="meter"><h4>Last minute chat per second</h4>${spark(L.chat || [], "chat", 0, Math.max(4, ...(L.chat || [0])))}</div>
+      <div class="meter"><h4>Latest AI decisions</h4><div class="said" style="justify-content:flex-start;color:var(--text)">${(L.verdicts || []).length ? L.verdicts.slice(0, 4).map(v => `<div>${fmt(v.t)} · ${v.transcript != null && v.transcript > 0 ? "words score " + v.transcript : v.transcript === 0 ? "words: none clip-worthy" : ""}${v.reaction != null ? " · reaction score " + v.reaction : ""} · <span class="sub">${esc(v.result)}</span></div>`).join("") : "<div class='sub'>First check soon…</div>"}</div></div>
       <div class="meter"><h4>What was just said</h4><div class="said">${L.lines.length ? L.lines.map(t => `<div>${esc(t)}</div>`).join("") : "<div>Listening…</div>"}</div></div>
     </div>${j.error ? `<div class="err">${esc(j.error)}</div>` : ""}</div>
     ${j.clips.length ? `<div class="grid" style="margin-bottom:28px">${[...j.clips].reverse().map(c => clipHtml(j, c)).join("")}</div>` : ""}`;
@@ -1817,7 +1821,9 @@ function drawJobs() {
 
 /* ============================================================ creator pages */
 function costHint(every) {
-  every = Number(every) || 3;
+  every = Number(every);
+  if (every === 0) return "Zero tokens while monitoring idle stream. When loudness, chat, and words spike, AI evaluates whether the moment is genuinely worth clipping.";
+  every = every || 3;
   return `About ${Math.round(60 / every * 2)} AI calls per live hour at most. Each check covers everything since the last one, so slower checks don't miss moments; they find them later.`;
 }
 function channelRows(c) {
@@ -1842,12 +1848,13 @@ async function saveChannels(chs, main) {
 function drawCreatorForm() {
   const c = creator(), box = $("#cform"); if (!c || !box) return;
   const A = S.accounts;
-  box.innerHTML = `<div class="card"><h2>Their stream</h2><p class="help">Where to record from, and whether to start by itself.</p>
+  box.innerHTML = `<div class="card"><h2>Their stream</h2><p class="help">Where to record from.</p>
       <div class="chans">${channelRows(c)}</div>
-      <div class="fields" style="margin-top:14px"><label class="sw span"><input type="checkbox" data-k="auto_watch" ${c.auto_watch ? "checked" : ""}><span>Record automatically when they go live<small>Checks straight away, then every two minutes.</small></span></label></div></div>
+      <div class="fields" style="margin-top:14px;color:var(--dim);font-size:13px"><p style="margin:0">Manual recording mode: Streams only record when you click "Record" to protect your AI tokens.</p></div></div>
     <div class="card"><h2>How the AI decides</h2><p class="help">Two separate AI checks. The words judge reads only what was said. The reaction judge sees only how loud the streamer got and how busy chat was, never the words.</p>
       <div class="fields">
-        <label class="f">Check the live stream every<select data-k="ai_every_min">${opts({1:"1 minute", 2:"2 minutes", 3:"3 minutes", 5:"5 minutes", 10:"10 minutes"}, c.ai_every_min || 3)}</select><small class="sub" id="costhint" style="font-weight:400">${costHint(c.ai_every_min)}</small></label>
+        <label class="f">Check the live stream every<select data-k="ai_every_min">${opts({0:"On hype spikes only (Combined signals + AI)", 1:"1 minute", 2:"2 minutes", 3:"3 minutes", 5:"5 minutes", 10:"10 minutes"}, c.ai_every_min ?? 3)}</select><small class="sub" id="costhint" style="font-weight:400">${costHint(c.ai_every_min)}</small></label>
+        <label class="sw span"><input type="checkbox" data-k="ai_hooks" ${c.ai_hooks !== false ? "checked" : ""}><span>AI viral hooks & titles for clips<small>Analyzes only the 30-second snippet of detected moments (~100 tokens), saving 95% of AI costs.</small></span></label>
         <p class="help span" style="margin:0">On top of that, the AI always looks straight away when the stream suddenly gets louder or chat gets busier, and when someone says "clip" or "clip it".</p>
         <label class="f">Most live clips per hour<input data-k="live_per_hour" type="number" min="1" max="60" value="${c.live_per_hour}"></label>
         <label class="f">Make a clip when<select data-k="decide_mode">${opts({both:"Both judges say yes", either:"Both say yes, or the words judge is very sure (90+)"}, c.decide_mode)}</select></label>
@@ -1915,7 +1922,6 @@ function nextSteps(o) {
   if (!S.creators.length) st.push(["Add your first creator", "Give each streamer their own workspace, settings and folder.", "newcreator"]);
   if (!S.jobs.length) st.push(["Make your first clips", "Paste a video link in the box above.", "focusurl"]);
   if (!S.accounts.length) st.push(["Connect a posting account", "YouTube, Instagram or TikTok, in one click.", "go:settings"]);
-  if (S.creators.length && !S.creators.some(c => c.auto_watch)) st.push(["Turn on auto-record", "Record by itself whenever a creator goes live.", "go:c:" + S.creators[0].id + ":setup"]);
   return st;
 }
 function drawOverview() {
@@ -2112,7 +2118,12 @@ async function drawSettings() {
             <div class="fields"><label class="f">${esc(st.id_label)}<input id="app_id" placeholder="${st.ready ? "Saved: " + esc(st.id_hint) + ". Paste a new one to replace it" : ""}" autocomplete="off" spellcheck="false"></label>
               <label class="f">${esc(st.secret_label)}<input id="app_secret" type="password" placeholder="${st.ready ? "Saved. Paste a new one to replace it" : ""}" autocomplete="off"></label></div>
             <p class="sub">${g[3]}</p>
-            <div class="row"><button class="btn primary" data-act="appsave" data-p="${pf}">Save</button><button class="btn ghost" data-act="appsetup" data-p="">Close</button></div></div>` : "";
+            <div class="row"><button class="btn primary" data-act="appsave" data-p="${pf}">Save</button><button class="btn ghost" data-act="appsetup" data-p="">Close</button></div>
+            ${pf === "instagram" ? `<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line-2)">
+              <p class="sub" style="font-weight:600;margin-bottom:6px">Or connect directly with an Access Token (no OAuth needed):</p>
+              <div class="copyrow" style="margin-bottom:8px"><input id="ig_direct_token" placeholder="Paste Instagram / Facebook Token from Graph API Explorer" style="flex:1" autocomplete="off" spellcheck="false"><button class="btn primary sm" data-act="igtokensave">Connect Token</button></div>
+              <p class="sub" style="font-size:12px;margin:0">Generate one at <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Meta Graph API Explorer</a> with permissions <code>instagram_business_basic</code> and <code>instagram_business_content_publish</code>.</p>
+            </div>` : ""}</div>` : "";
         return `<div class="appcard"><span class="applogo" style="background:${bg}">${logo}</span>
           <div class="apptx"><b>${name}</b><span>${desc}</span>${listOf(accs)}</div><div class="appact">${act}</div>${panel}</div>`;
       };
@@ -2159,6 +2170,7 @@ function drawClipDlg(full) {
           : `<p class="help">No accounts connected yet. Connect one in Settings.</p>`}
         <div class="row" style="margin-top:auto;padding-top:8px;border-top:1px solid var(--line)">
           ${c.status === "done" ? `<a class="btn" href="${m}${esc(c.file)}?download=1">${ic("down")}Download</a>` : ""}
+          ${c.status === "done" ? `<a class="btn" href="${m}${esc(c.id)}.srt?download=1" title="Download SubRip subtitles">${ic("film")}Subtitles (.srt)</a>` : ""}
           <button class="btn" data-act="copy" data-j="${j.id}" data-c="${esc(c.id)}">${ic("copy")}Copy post text</button></div>
       </div></div>`;
   } else if (D.sig !== sig) $("#stage").innerHTML = stage;
@@ -2437,6 +2449,21 @@ document.addEventListener("click", async e => {
     if (a === "appsave") {
       await send("/api/apps", {platform: d.p, client_id: $("#app_id").value, client_secret: $("#app_secret").value}, "PUT");
       S.setupOpen = ""; S.status = await api("/api/status"); toast("Saved. People can connect now.", "ok"); return drawSettings();
+    }
+    if (a === "igtokensave") {
+      const tok = $("#ig_direct_token")?.value.trim();
+      if (!tok) return toast("Paste an access token first", "bad");
+      b.disabled = true;
+      try {
+        const acc = await send("/api/accounts/instagram/token", {token: tok});
+        toast(`Connected Instagram account ${acc.name}!`, "ok");
+        await tick(); return drawSettings();
+      } catch (e) {
+        toast(e.message || "Failed to connect token", "bad");
+      } finally {
+        b.disabled = false;
+      }
+      return;
     }
     if (a === "bell") return openBell();
     if (a === "feedback") return openFeedback("bug");

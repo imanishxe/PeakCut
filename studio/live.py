@@ -2,6 +2,7 @@
 import collections
 import json
 import re
+import shutil
 import socket
 import ssl
 import subprocess
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import alerts, auth, brain, config, creators, ctx, facecam, games, jobs, load, media, transcribe, usage
+from . import alerts, auth, brain, chat_spike, config, creators, ctx, facecam, games, jobs, load, media, transcribe, usage
 
 # ":username!user@host PRIVMSG #channel :the message"
 _NICK = re.compile(r"(?m)^:([A-Za-z0-9_]{2,25})!")
@@ -189,7 +190,7 @@ class Session:
             box = facecam.detect(src, ask=brain.look_for_facecam)
         except Exception:  # noqa: BLE001 - a missing facecam is not a failure
             return None
-        if not box or box.get("conf") != "high":
+        if not box:
             return None
         self.job["facecam"] = [box["x"], box["y"], box["w"], box["h"]]
         return self.job["facecam"]
@@ -216,9 +217,24 @@ class Session:
         SESSIONS[self.job["id"]] = self
         threading.Thread(target=ctx.bind(self._ingest), daemon=True).start()
         threading.Thread(target=ctx.bind(self._analyze), daemon=True).start()
-        m = re.match(r"^https?://(?:www\.)?twitch\.tv/([A-Za-z0-9_]+)", self.job["source"]["url"])
+        url = self.job["source"]["url"]
+        m = re.match(r"^https?://(?:www\.)?twitch\.tv/([A-Za-z0-9_]+)", url)
         if m:
             threading.Thread(target=ctx.bind(self._chat), args=(m.group(1).lower(),), daemon=True).start()
+        elif media.is_youtube(url):
+            # If the creator also streams on Twitch, listen to Twitch IRC for extra chat coverage
+            cid = self.job.get("creator")
+            tw_ch = None
+            if cid:
+                try:
+                    c_info = creators.get(cid)
+                    tw_ch = (c_info.get("channels") or {}).get("twitch")
+                except Exception:
+                    pass
+            m_tw_fallback = re.search(r"twitch\.tv/([A-Za-z0-9_]+)", tw_ch) if tw_ch else None
+            if m_tw_fallback:
+                threading.Thread(target=ctx.bind(self._chat), args=(m_tw_fallback.group(1).lower(),), daemon=True).start()
+            threading.Thread(target=ctx.bind(self._chat_youtube), args=(url,), daemon=True).start()
 
     def stop(self, note="Stopped by you"):
         """Instant for the user: the card and the creator show as stopped straight away. Clips already being made
@@ -295,7 +311,7 @@ class Session:
         self.ended = True
 
     def _scan_segments(self):
-        """Pick up buffer pieces ffmpeg has finished writing."""
+        """Pick up buffer pieces ffmpeg has finished writing, and enforce circular rolling buffer constraints."""
         with self.lock:
             for i in range(1, self.part + 1):
                 f = self.buf / f"p{i:02d}.csv"
@@ -310,11 +326,48 @@ class Session:
                     self.segments.append((self.buf / name, self.seg_clock, self.seg_clock + dur))
                     self.seg_clock += dur
                 self.csv_seen[i] = len(rows)
-            keep_from = self.seg_clock - self.settings["buffer_min"] * 60
-            while self.segments and self.segments[0][2] < keep_from:
-                self.segments.pop(0)[0].unlink(missing_ok=True)
 
-    # ---------------------------------------------------------------- chat (Twitch only)
+            buf_min = float(self.settings.get("buffer_min", 20))
+            keep_from = self.seg_clock - buf_min * 60
+
+            # Guard against host drive exhaustion
+            try:
+                free_gb = shutil.disk_usage(self.buf).free / 1e9
+                if free_gb < 0.25 and not self.user_stopped and not self.ended:
+                    self.stop("Recording stopped: disk space critically low (under 250 MB free)")
+                elif free_gb < 1.5:
+                    contracted_min = min(buf_min, max(0.5, free_gb * 1.5))
+                    keep_from = max(keep_from, self.seg_clock - contracted_min * 60)
+            except Exception:  # noqa: BLE001
+                pass
+
+            # Protect segments still required by queued or rendering clips
+            pending = [
+                c.get("start", 0) - PAD for c in self.job.get("clips", [])
+                if c.get("status") in ("queued", "rendering") and not c.get("src")
+            ]
+            if pending:
+                keep_from = min(keep_from, min(pending))
+
+            while self.segments and self.segments[0][2] <= keep_from:
+                old_seg = self.segments.pop(0)
+                try:
+                    old_seg[0].unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001
+                    pass
+
+            # Prune orphaned .ts files that are no longer part of active segments
+            if time.time() - getattr(self, "_last_orphan_prune", 0.0) > 60:
+                self._last_orphan_prune = time.time()
+                active = {s[0].name for s in self.segments}
+                try:
+                    for ts in self.buf.glob("*.ts"):
+                        if ts.name not in active and time.time() - ts.stat().st_mtime > 180:
+                            ts.unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    # ---------------------------------------------------------------- chat (Twitch & YouTube)
     def _chat(self, channel):
         while not self.stop_flag.is_set() and not self.ended:
             try:
@@ -352,25 +405,72 @@ class Session:
             self.chat_on = False
             self.stop_flag.wait(5)
 
+    def _chat_youtube(self, url):
+        """Streams live chat messages from a YouTube live stream."""
+        import urllib.request
+        while not self.stop_flag.is_set() and not self.ended:
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                html = urllib.request.urlopen(req, timeout=12).read().decode("utf-8", "replace")
+                key_m = re.findall(r'"INNERTUBE_API_KEY":"([^"]+)"', html)
+                cont_m = re.findall(r'"continuation":"([^"]+)"', html)
+                if not key_m or not cont_m:
+                    self.stop_flag.wait(15)
+                    continue
+                key, cont = key_m[0], cont_m[0]
+                self.chat_on = True
+                api_url = f"https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?key={key}"
+                while not self.stop_flag.is_set() and not self.ended:
+                    payload = json.dumps({
+                        "context": {"client": {"clientName": "WEB", "clientVersion": "2.20230810.00.00"}},
+                        "continuation": cont
+                    }).encode("utf-8")
+                    api_req = urllib.request.Request(api_url, data=payload, headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
+                    try:
+                        data = json.loads(urllib.request.urlopen(api_req, timeout=10).read().decode("utf-8"))
+                    except Exception:
+                        self.stop_flag.wait(4)
+                        continue
+                    live_cont = data.get("continuationContents", {}).get("liveChatContinuation", {})
+                    actions = live_cont.get("actions", [])
+                    new_conts = live_cont.get("continuations", [])
+                    next_cont = None
+                    timeout_ms = 3000
+                    for c in new_conts:
+                        inv = c.get("invalidationContinuationData") or c.get("timedContinuationData")
+                        if inv and inv.get("continuation"):
+                            next_cont = inv["continuation"]
+                            timeout_ms = inv.get("timeoutMs", 3000)
+                            break
+                    if not next_cont:
+                        break
+                    cont = next_cont
+                    with self.lock:
+                        second = int(self.samples / SR)
+                        for a in actions:
+                            item = a.get("addChatItemAction", {}).get("item", {})
+                            msg_r = item.get("liveChatTextMessageRenderer") or item.get("liveChatPaidMessageRenderer")
+                            if msg_r:
+                                self.chat[second] += 1
+                                self.chat_total += 1
+                                author = msg_r.get("authorName", {}).get("simpleText") or msg_r.get("authorExternalChannelId", "")
+                                if author:
+                                    self.chat_users.setdefault(second, set()).add(str(author).lower())
+                                    self.chat_kept = _trim_names(self.chat_users, second, self.chat_kept)
+                    self.stop_flag.wait(max(1.0, min(10.0, timeout_ms / 1000.0)))
+            except Exception:  # noqa: BLE001
+                pass
+            self.stop_flag.wait(10)
+
     def _chat_spike(self, s, e):
-        """True if chat was at least 3x busier than usual during (and just after) these seconds.
+        """True if chat was at least 2.5x busier than usual during these seconds.
 
         The crowd is counted as people, not messages: ten people saying "GG" is a reaction, one
         person saying "GG" ten times is a bot."""
-        elapsed = self.samples / SR
-        if not self.chat_total or elapsed < 60:
-            return False
-        avg = self.chat_total / elapsed
-        a, b = int(s), int(e) + 6
-        rate = sum(self.chat.get(t, 0) for t in range(a, b + 1)) / (b - a + 1)
-        if rate <= max(3 * avg, 1.0):
-            return False
-        people = self.chat_people()
-        if not people:
-            return True
-        p_avg = sum(len(v) for v in people.values()) / max(1, len(people))
-        p_rate = sum(len(people.get(t, ())) for t in range(a, b + 1)) / (b - a + 1)
-        return p_rate >= max(2.0, 1.5 * p_avg)
+        min_u = int(self.settings.get("chat_spike_min_users", 5)) or 5
+        res = chat_spike.evaluate_chat_spike(self.chat, self.chat_people(), current_sec=int(e),
+                                             bucket_sec=10, window_sec=180, multiplier=2.5, min_users=min_u)
+        return bool(res)
 
     def chat_people(self):
         """Second -> how many different people were talking, where that is known.
@@ -431,16 +531,25 @@ class Session:
         if loud_jump >= pct:
             why.append(f"loudness +{round(loud_jump * 100)}%")
         chat_base = chat_now = None
+        chat_eval = None
+        if self.chat_on or self.chat_total:
+            min_u = int(self.settings.get("chat_spike_min_users", 5)) or 5
+            chat_eval = chat_spike.evaluate_chat_spike(self.chat, people, current_sec=n, bucket_sec=10,
+                                                       window_sec=180, multiplier=2.5, min_users=min_u)
+            if chat_eval:
+                why.append(chat_eval["why"])
         if chat is not None:
             chat_base = sum(chat[:-10]) / max(1, len(chat) - 10)
             chat_now = sum(chat[-8:]) / 8          # chat is bursty, so look at a slightly longer stretch
-            if chat_now >= max(1.5, chat_base * (1 + pct)):
+            if chat_eval is None and chat_now >= max(1.5, chat_base * (1 + pct)):
                 why.append(f"chat +{round((chat_now / max(chat_base, 0.01) - 1) * 100)}%")
         self.base = {"loud_db": round(20 * np.log10(max(base, 1e-6)), 1), "loud_now": round(loud_jump * 100),
                      "chat": round(chat_base, 2) if chat_base is not None else None,
                      "chat_now": round(chat_now, 2) if chat_now is not None else None, "pct": round(pct * 100)}
+        if chat_eval:
+            self.base["chat_spike"] = chat_eval
         if why and not self.spike and n - self.last_spike >= self.AUTO_GAP:
-            self.spike = {"t": float(n - 3), "why": ", ".join(why)}
+            self.spike = {"t": float(n - 3), "why": ", ".join(why), "is_chat": bool(chat_eval)}
             self.last_spike = n
             self.spikes += 1
 
@@ -448,7 +557,9 @@ class Session:
         """Judge 1 reads only the words. If it finds a moment, judge 2 reads only the loudness and chat activity
         for the same stretch, without seeing the words. A clip is made when both say yes (or as set in Setup)."""
         st = self.settings
-        every = int(st.get("ai_every_min", 3)) or 3
+        every = int(st.get("ai_every_min", 3))
+        if every == 0 and not window:
+            return
         if window:                    # just the stretch around a jump, or around someone saying "clip"
             ws, now = max(0.0, window[0]), window[1]
         else:
@@ -599,20 +710,41 @@ class Session:
         lst.write_text("".join(f"file '{s[0].as_posix()}'\n" for s in segs), encoding="utf-8")
         src = self.dir / "clips" / f"{clip['id']}.src.ts"
         try:
-            media.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(lst),
-                       "-c", "copy", str(src)])
+            # Each segment was recorded with -reset_timestamps 1, so its audio and video both
+            # start at PTS=0.  After concat copy the demuxer stitches them into a monotonic
+            # timeline, but tiny PTS rounding errors at each segment boundary accumulate —
+            # audio ends up arriving 0.5-2 s ahead of the matching video frames.
+            # Fixing it at the concat step (re-mux with video copy + audio resample) is cheaper
+            # than fixing it in every render, and it also keeps the .src.ts file clean for
+            # later re-renders of the same clip with a different layout.
+            media.run([
+                "ffmpeg", "-y", "-v", "error",
+                "-f", "concat", "-safe", "0", "-i", str(lst),
+                "-map", "0:v:0", "-c:v", "copy",
+                "-map", "0:a:0", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                "-af", "aresample=async=1:first_pts=0",
+                str(src),
+            ])
         except Exception as e:  # noqa: BLE001
             clip.update(status="error", error=media_safe(e))
             jobs.save(self.job)
             return
         finally:
             lst.unlink(missing_ok=True)
-        # Only the gameplay layout uses a webcam, and only once the clip's own file is written: the
-        # webcam is looked for in it, once per stream.
-        if clip.get("layout") == "gameplay":
-            if not self.facecam_checked:
+        # Gameplay and stacked layouts use a webcam, and only once the clip's own file is written: the
+        # webcam is looked for in it, once per stream.  We keep retrying until we find one (up to 3
+        # attempts) because the first clip may be too short or too still for edge detection to work.
+        if clip.get("layout") in ("gameplay", "stacked"):
+            if not self.facecam_box:
                 self.facecam_box = self._find_facecam(src)
-                self.facecam_checked = True
+                if self.facecam_box:
+                    self.facecam_checked = True          # found — stop looking
+                elif not self.facecam_checked:
+                    # Count failed attempts; give up after 3 so we don't burn time on a stream
+                    # that genuinely has no webcam.
+                    self._facecam_attempts = getattr(self, "_facecam_attempts", 0) + 1
+                    if self._facecam_attempts >= 3:
+                        self.facecam_checked = True      # give up
             if self.facecam_box:
                 clip["facecam"] = self.facecam_box
         dur = segs[-1][2] - segs[0][1]
@@ -621,6 +753,7 @@ class Session:
         clip.update(src=str(src), src_offset=round(offset, 2), src_end=round(offset + dur, 2))
         clip["start"] = max(clip["start"], clip["src_offset"])
         clip["end"] = min(clip["end"], clip["src_end"])
+        self._scan_segments()
         jobs.render_one(self.job, clip, list(self.words))
 
     def _align(self, src, guess, dur):
@@ -643,7 +776,7 @@ class Session:
                 m = [w["s"] for w in near if key(w["w"]) == k and abs(w["s"] - (guess + h["s"])) < 8]
                 if m:
                     diffs.append(min(m, key=lambda s: abs(s - (guess + h["s"]))) - h["s"])
-            if len(diffs) >= 4:
+            if len(diffs) >= 2:
                 return float(np.median(diffs))
         except Exception:  # noqa: BLE001 - fall back to the piece clock
             pass
@@ -655,20 +788,83 @@ class Session:
             raise ValueError("Nothing has been recorded yet.")
         self.manual.append({"start": max(0.0, end - seconds), "end": end})
 
+    def _clip_spike(self, sp):
+        """Clip extraction from an IRC chat or loudness hype spike.
+
+        Extracts around the spike, refines boundaries to sentence completion, and selectively
+        enhances metadata using a targeted ~30s snippet prompt if AI hooks are enabled."""
+        st = self.settings
+        now = self.samples / SR
+        raw_start = max(0.0, sp["t"] - 20.0)
+        raw_end = min(sp["t"] + 10.0, now)
+        if raw_end - raw_start < 5.0:
+            return
+
+        min_len = float(st.get("min_len", 15))
+        max_len = float(st.get("max_len", 60))
+
+        use_ai = bool(st.get("ai_hooks", True))
+
+        c, tokens = brain.enhance_spike_clip(
+            raw_start, raw_end, list(self.words),
+            title=self.job.get("title", ""), uploader=self.job.get("uploader", ""),
+            game=self._game(), min_len=min_len, max_len=max_len, duration=now,
+            why=sp["why"], use_ai=use_ai, timeout=config.LIVE_AI_TIMEOUT
+        )
+        self.tokens += tokens
+        if tokens:
+            self.checks += 1
+
+        min_score = int(st.get("min_score", 80))
+        if use_ai and tokens and c.get("score", 0) < min_score:
+            self.rejected += 1
+            ai_why = c.get("ai_reason") or "AI judged not clip-worthy"
+            self._verdict({"t": round(sp["t"]), "transcript": c.get("score"), "reaction": 95, "trigger": sp["why"]},
+                          f"AI rejected (score {c.get('score')}): {ai_why}")
+            return
+
+        min_gap = float(st.get("min_gap_min", 2)) * 60
+        with self.lock:
+            if any(abs(c["start"] - k["start"]) < min_gap for k in self.job["clips"]):
+                self._verdict({"t": round(sp["t"]), "transcript": c.get("score"), "reaction": 95, "trigger": sp["why"]},
+                              "Too close to the last clip")
+                return
+            recent = [x for x in self.job["clips"] if x.get("score", 0) > 0 and time.time() - x.get("made_at", 0) < 3600]
+            if len(recent) >= st.get("live_per_hour", 4):
+                self._verdict({"t": round(sp["t"]), "transcript": c.get("score"), "reaction": 95, "trigger": sp["why"]},
+                              f"Skipped: {st['live_per_hour']} clips this hour already")
+                return
+
+        self._add_clip(c)
+        self._scan_segments()
+        why_label = f"Clipped (AI score {c.get('score', 92)}): " if tokens else "Clipped: "
+        self._verdict({"t": round(sp["t"]), "transcript": c.get("score"), "reaction": 95, "trigger": sp["why"]},
+                      why_label + (c.get("title") or sp["why"].lower()))
+        tok_note = f" ({tokens} tokens)" if tokens else " (zero tokens)"
+        creators.log(self.job["creator"], f"Clip #{self.n} created from hype spike: {sp['why']}{tok_note}")
+
     def _publish(self):
         elapsed = self.samples / SR
         lines = brain.make_lines([w for w in self.words if w["s"] >= self.t_done - 45])[-5:]
         with self.lock:
             sec = int(elapsed)
+            buf_bytes = 0
+            for s in self.segments:
+                try:
+                    buf_bytes += s[0].stat().st_size
+                except OSError:
+                    pass
+            buf_mb = round(buf_bytes / (1024 * 1024), 1)
             self.job.update(
                 duration=elapsed,
                 live={"elapsed": round(elapsed), "buffer_sec": round(self.segments[-1][2] - self.segments[0][1]) if self.segments else 0,
+                      "buffer_mb": buf_mb,
                       "lines": [l["text"] for l in lines], "level": [round(x) for x in self.db[-60:]],
-                      "chat": [self.chat.get(t, 0) for t in range(max(0, sec - 60), sec)] if self.chat_on or self.chat_total else None,
+                      "chat": [self.chat.get(t, 0) for t in range(max(0, sec - 60), sec)],
                       "checks": self.checks, "skipped": self.skipped, "tokens": self.tokens, "words": len(self.words),
                       "rejected": self.rejected, "verdicts": list(reversed(self.verdicts)),
-                      "every_min": int(self.settings.get("ai_every_min", 3)) or 3,
-                      "auto": None,
+                      "every_min": int(self.settings.get("ai_every_min", 3)),
+                      "auto": self.base,
                       "pending_clips": len(self.manual)})
         jobs.save(self.job)
 
@@ -690,7 +886,7 @@ class Session:
                 self._manual_step()
                 # Three ways the AI is asked: on the creator's schedule (every N minutes), and always, when the
                 # stream suddenly gets louder or chat busier, or when someone says "clip".
-                every = int(self.settings.get("ai_every_min", 3)) or 3
+                every = int(self.settings.get("ai_every_min", 3))
                 self._watch_spikes()
                 sp, said = self.spike, self.said
                 if self.user_stopped:
@@ -700,8 +896,8 @@ class Session:
                     self._ask_ai((said["t"] - self.SAID_BEFORE, said["t"] + self.SAID_AFTER), said["why"])
                 elif sp and (self.t_done >= sp["t"] + self.AUTO_AFTER or (self.ended and not busy)):
                     self.spike = None
-                    self._ask_ai((sp["t"] - self.AUTO_BEFORE, sp["t"] + self.AUTO_AFTER), "Jump: " + sp["why"])
-                elif self.t_done - self.last_check >= every * 60 or (self.ended and not busy and self.t_done > self.last_check):
+                    self._clip_spike(sp)
+                elif every > 0 and (self.t_done - self.last_check >= every * 60 or (self.ended and not busy and self.t_done > self.last_check)):
                     self._ask_ai()
                 self._publish()
             except Exception as e:  # noqa: BLE001
@@ -818,56 +1014,30 @@ def _watch_user(uid):
 
 
 def check_now(cid):
-    """Auto-record was just turned on: look now, on a thread, instead of waiting for the next round."""
+    """Refresh creator profile state without auto-starting recordings."""
     uid = ctx.uid()
 
     def run():
         from . import profiles
         with ctx.as_user(uid):
-            c = creators.get(cid)
-            if not c or not c["auto_watch"] or not c["channel"]:
-                return
-            for url in c.get("channels", {}).values():
-                profiles._live.pop(url.rstrip("/").lower(), None)     # a fresh answer, not one from two minutes ago
-            _watch_one(c)
             profiles.refresh(cid, force=True)
     threading.Thread(target=run, daemon=True).start()
 
 
 def _watch_one(c):
-    """Start recording this auto-record creator if they are live on any of their channels."""
+    """Refreshes live profile state. Automatic recording start has been removed so AI tokens
+    are never consumed automatically. Recording only starts when the user presses 'Record'."""
     from . import profiles
     try:
-        if active_for(c["id"]) or len(active_mine()) >= config.MAX_LIVE_PER_USER or len(active()) >= config.MAX_LIVE_TOTAL or (active() and load.busy()):
-            return
-        # the chosen channel first, then their other platforms
         urls = [c["channel"]] + [u for u in c.get("channels", {}).values() if u != c["channel"]]
         for url in urls:
-            # one shared "are they live?" answer per channel, however many people follow it
-            if not profiles.live_shared(profiles.platform_of(url), url).get("live"):
-                continue
-            if media.is_youtube(url):
-                # check YouTube will hand over the stream before making a recording that could only fail
-                if media.youtube_paused():
-                    continue
-                try:
-                    resolve(normalize(url))
-                except NotLive:
-                    continue
-            start_session(c, url)
-            where = creators.platform_key(url).title()
-            creators.log(c["id"], f"Went live on {where}: recording started automatically")
-            alerts.notify(f"{c['name']} went live on {where}, recording started.")
-            break
-    except NotLive:
+            profiles.live_shared(profiles.platform_of(url), url)
+    except Exception:  # noqa: BLE001
         pass
-    except Exception as e:  # noqa: BLE001
-        creators.log(c["id"], f"Auto-record check failed: {str(e)[-150:]}")
 
 
 def watch_loop():
-    """Every two minutes, start recording any creator set to auto-record who has gone live. Covers every user,
-    several at a time, so the round stays short however many accounts there are."""
+    """Periodically refreshes live stream status for creators without auto-starting recordings."""
     from concurrent.futures import ThreadPoolExecutor
     time.sleep(20)
     pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="watch")
@@ -881,28 +1051,8 @@ def watch_loop():
 
 
 def _resume_recordings(paused):
-    """Recordings that were running when the server stopped: start recording the same channel again, if the
-    stream is still on. Tried for a few minutes, since the server may come back a little before the network."""
-    time.sleep(10)
-    for _ in range(6):
-        left = []
-        for uid, cid, url in paused:
-            with ctx.as_user(uid):
-                try:
-                    c = creators.get(cid)
-                    if not c or active_for(cid):
-                        continue
-                    resolve(normalize(url))      # raises NotLive if the stream has ended: no empty recording is made
-                    start_session(c, url)
-                    creators.log(cid, "Recording picked up again after a server update")
-                except NotLive:
-                    continue                  # the stream ended while the server was away
-                except Exception:  # noqa: BLE001 - try again shortly
-                    left.append((uid, cid, url))
-        if not left:
-            return
-        paused = left
-        time.sleep(30)
+    """Auto-resume has been removed so live recordings do not restart automatically without user action."""
+    return
 
 
 def start():

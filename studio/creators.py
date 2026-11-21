@@ -16,6 +16,7 @@ _lock = threading.RLock()
 
 DEFAULTS = {"name": "", "channel": "", "style": "bounce", "layout": "blur", "captions": True, "min_len": 15, "max_len": 60,
             "max_clips": 6, "min_score": 80, "auto_watch": False, "buffer_min": 20, "live_per_hour": 4, "ai_every_min": 3, "ai_only_on_spike": True, "auto_jump_pct": 60,
+            "chat_spike_min_users": 5, "ai_hooks": True,
             "plan": "free", "decide_mode": "both", "must_clip_min": 0, "min_gap_min": 2,
             "game": "",
             "trigger_words": "clip that, clip it",
@@ -36,13 +37,13 @@ def _fix(c: dict) -> dict:
     if c.get("channel") and platform_key(c["channel"]) and c["channel"] not in ch.values():
         ch.setdefault(platform_key(c["channel"]), c["channel"])
     c["channels"] = ch
-    if not c.get("ai_every_min"):
-        c["ai_every_min"] = 3       # "Auto" (0) is gone: jumps in loudness and chat are now always checked
+    if "ai_every_min" not in c or c["ai_every_min"] is None:
+        c["ai_every_min"] = 3
     if c.get("channel") not in ch.values():
         c["channel"] = next((ch[k] for k in PLATFORMS if k in ch), "")
     return c
-NUMERIC = {"min_len": (5, 120), "max_len": (10, 180), "max_clips": (1, 20), "min_score": (0, 100), "buffer_min": (5, 120), "live_per_hour": (1, 60), "ai_every_min": (1, 30), "auto_jump_pct": (20, 300), "must_clip_min": (0, 240), "min_gap_min": (0, 60),
-           "post_min_score": (0, 100), "post_gap_min": (5, 1440), "daily_cap": (1, 50)}
+NUMERIC = {"min_len": (5, 120), "max_len": (10, 180), "max_clips": (1, 20), "min_score": (0, 100), "buffer_min": (5, 120), "live_per_hour": (1, 60), "ai_every_min": (0, 30), "auto_jump_pct": (20, 300), "must_clip_min": (0, 240), "min_gap_min": (0, 60),
+           "post_min_score": (0, 100), "post_gap_min": (5, 1440), "daily_cap": (1, 50), "chat_spike_min_users": (1, 100)}
 
 
 def root(cid) -> Path:
@@ -66,7 +67,7 @@ def _clean(data: dict) -> dict:
         if k in NUMERIC:
             lo, hi = NUMERIC[k]
             v = max(lo, min(hi, int(float(v))))
-        elif k in ("auto_watch", "autopost", "ai_only_on_spike"):
+        elif k in ("auto_watch", "autopost", "ai_only_on_spike", "ai_hooks"):
             v = bool(v)
         elif k == "channels":
             v = {p: str(u).strip()[:300] for p, u in (v.items() if isinstance(v, dict) else []) if p in PLATFORMS and str(u).strip()}

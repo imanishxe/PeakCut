@@ -175,7 +175,7 @@ def test() -> dict:
     ms = models()
     if not ready():
         raise ValueError("Save a service, a model and a key first.")
-    out, sent, wrote = call(ms[0], 'Answer with a JSON array that holds the single string "ok".', {"type": "ARRAY", "items": {"type": "STRING"}})
+    out, sent, wrote = call(ms[0], 'Answer with a JSON array that holds the single string "ok".', {"type": "ARRAY", "items": {"type": "STRING"}}, max_tokens=100)
     return {"ok": True, "model": ms[0], "tokens": sent + wrote, "answer": str(out)[:80]}
 
 
@@ -194,8 +194,8 @@ def explain(e) -> str:
         return f"{label()} doesn't know the model \"{name}\". Open Settings, AI, press Find models and pick one from the list."
     if "401" in text or "403" in text or "api key" in low or "api_key" in low or "unauthorized" in low or "permission" in low:
         return f"{label()} refused the key. Paste a working key under Settings, AI."
-    if "429" in text or "quota" in low or "rate limit" in low or "exhausted" in low:
-        return f"{label()} says the key has hit its limit or has no credit left. Check the account with {label()}, or try again later."
+    if "429" in text or "quota" in low or "rate limit" in low or "exhausted" in low or "402" in text or "credit" in low or "balance" in low or "afford" in low:
+        return f"{label()} says the key has hit its limit, has no credit left, or requires more credits. Check the account with {label()}, or try again later."
     if "connect" in low or "timed out" in low or "timeout" in low or "getaddrinfo" in low or "refused" in low or "nodename" in low or "servname" in low or "nameresolutionerror" in low or "name resolution" in low:
         return f"PeakCut couldn't reach {label()}. Check the internet connection" + (" and that Ollama is running." if provider() == "ollama" else ".")
     return ""
@@ -292,13 +292,13 @@ def _parse(text):
 
 
 # ---------------------------------------------------------------- one call
-def call(model: str, prompt: str, schema: dict, timeout: float | None = None):
+def call(model: str, prompt: str, schema: dict, timeout: float | None = None, max_tokens: int | None = None):
     """Ask one model. Returns (the parsed JSON answer, tokens sent, tokens written back).
 
     `timeout` is how long one answer may take. A live stream passes a short one, because a slow
     answer must not stop the recording."""
     how = PROVIDERS[provider()][2]
-    return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic}[how](model, prompt, schema, timeout)
+    return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic}[how](model, prompt, schema, timeout, max_tokens)
 
 
 def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, int, int]:
@@ -338,21 +338,27 @@ def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, i
         u = data.get("usage") or {}
         return text, int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0)
     headers = {"Authorization": f"Bearer {key()}"} if key() else {}
-    body = {"model": model, "stream": False, "messages": [{"role": "user", "content": [
+    body = {"model": model, "stream": False, "max_tokens": 1000, "messages": [{"role": "user", "content": [
         {"type": "text", "text": prompt},
         {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}}]}]}
     r = httpx.post(f"{base_url()}/chat/completions", json=body, headers=headers, timeout=timeout or 120)
     if r.status_code != 200:
         _fail(r, model)
     data = _openai_body(r)
-    text = (data["choices"][0]["message"].get("content") or "")
+    msg = data["choices"][0]["message"]
+    text = (msg.get("content") or "").strip()
+    if not text and msg.get("reasoning_content"):
+        text = msg["reasoning_content"].strip()
     u = data.get("usage") or {}
     return text, int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
 
 
-def _gemini(model, prompt, schema, timeout=None):
+def _gemini(model, prompt, schema, timeout=None, max_tokens=None):
+    cfg = {"temperature": 0.4, "responseMimeType": "application/json", "responseSchema": schema}
+    if max_tokens:
+        cfg["maxOutputTokens"] = max_tokens
     body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json", "responseSchema": schema}}
+            "generationConfig": cfg}
     r = httpx.post(f"{base_url()}/{model}:generateContent", json=body, headers={"x-goog-api-key": key()}, timeout=timeout or 120)
     if r.status_code != 200:
         _fail(r, model)
@@ -414,14 +420,19 @@ def _from_events(text: str) -> dict:
     return {"choices": [{"message": message}], "usage": usage}
 
 
-def _openai(model, prompt, schema, timeout=None):
+def _openai(model, prompt, schema, timeout=None, max_tokens=None):
     headers = {"Authorization": f"Bearer {key()}"} if key() else {}
-    body = {"model": model, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}], "stream": False}
+    limit = max_tokens or 2048
+    body = {"model": model, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}], "stream": False, "max_tokens": limit}
     # Most services accept these two extras; a few models refuse one of them, so they are dropped on a refusal.
     extras = [{"temperature": 0.4, "response_format": {"type": "json_object"}}, {"response_format": {"type": "json_object"}}, {}]
     r = None
     for extra in extras:
         r = httpx.post(f"{base_url()}/chat/completions", json={**body, **extra}, headers=headers, timeout=timeout or 180)
+        if r.status_code in (400, 422) and "max_tokens" in r.text and "max_completion_tokens" in r.text:
+            body.pop("max_tokens", None)
+            body["max_completion_tokens"] = limit
+            r = httpx.post(f"{base_url()}/chat/completions", json={**body, **extra}, headers=headers, timeout=timeout or 180)
         if r.status_code not in (400, 422):
             break
     if r.status_code != 200:
@@ -431,8 +442,8 @@ def _openai(model, prompt, schema, timeout=None):
     return _parse(data["choices"][0]["message"].get("content")), int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
 
 
-def _anthropic(model, prompt, schema, timeout=None):
-    body = {"model": model, "max_tokens": 8192, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}]}
+def _anthropic(model, prompt, schema, timeout=None, max_tokens=None):
+    body = {"model": model, "max_tokens": max_tokens or 8192, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}]}
     r = httpx.post(f"{base_url()}/messages", json=body, timeout=timeout or 180,
                    headers={"x-api-key": key(), "anthropic-version": "2023-06-01"})
     if r.status_code != 200:
