@@ -80,7 +80,10 @@ def install_fonts():
 
 LAYOUTS = {"blur": "Full frame + blurred fill", "zoom": "Zoomed in + blurred fill", "crop": "Fill the screen (centre crop)",
            "gameplay": "Gameplay fills the screen, facecam in the corner",
-           "stacked": "Smart facecam stacked (facecam top, gameplay bottom)"}
+           "stacked": "Smart facecam stacked (facecam top, gameplay bottom)",
+           "left": "Fill the screen, keep the left side", "right": "Fill the screen, keep the right side",
+           "fit": "Full frame on black", "split": "Split screen: left half on top, right half below (two people)"}
+_FILLS = ("crop", "left", "right", "gameplay")
 
 
 def _ts(t):
@@ -114,7 +117,11 @@ def geometry(src_w, src_h, layout):
     """Where the video sits in the 1080x1920 frame, and where hook and captions go."""
     if src_h >= src_w and layout not in ("crop", "stacked"):
         layout = "crop"  # already vertical or square: nothing to gain from a blurred fill
-    if layout == "blur":
+    if not layout in LAYOUTS:
+        layout = "blur"
+    if src_h >= src_w and layout not in ("crop", "left", "right", "stacked"):
+        layout = "crop"
+    if layout in ("blur", "fit"):
         fg_h = min(H, int(round(W * src_h / src_w / 2)) * 2) if src_w else 608
     elif layout == "zoom":
         fg_h = 1000
@@ -124,8 +131,10 @@ def geometry(src_w, src_h, layout):
     else:
         fg_h = H
     top = (H - fg_h) // 2
-    if layout in ("crop", "gameplay"):
+    if layout in _FILLS:
         return layout, fg_h, 300, 1380
+    if layout == "split":
+        return layout, fg_h, 230, H // 2        # captions sit on the line between the two people
     return layout, fg_h, max(230, top - 190), min(1640, top + fg_h + 180)
 
 
@@ -301,6 +310,7 @@ def _filter(layout, fg_h, facecam=None):
                     f"[top_src]crop={fw}:{fh}:{fx}:{fy},scale={W}:{top_h}:force_original_aspect_ratio=increase,crop={W}:{top_h},setsar=1[top];"
                     f"[bot_src]scale={W}:{bot_h}:force_original_aspect_ratio=increase,crop={W}:{bot_h},setsar=1[bot];"
                     f"[top][bot]vstack=inputs=2[v0];")
+    fill = f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
     if layout == "crop" or (layout in ("gameplay", "stacked") and not facecam):
         if layout == "stacked" and not facecam:
             return (f"fps={config.OUT_FPS},split=2[a][b];"
@@ -308,8 +318,19 @@ def _filter(layout, fg_h, facecam=None):
                     f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
                     f"[b]scale={W}:{fg_h}:force_original_aspect_ratio=increase,crop={W}:{fg_h}[fg];"
                     f"[bg][fg]overlay=0:(H-h)/2,setsar=1[v0];")
-        return f"fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
-    return (f"fps={config.OUT_FPS},split=2[a][b];"
+        return fill + ",setsar=1[v0];"
+    if layout == "left":
+        return fill + ":0:0,setsar=1[v0];"
+    if layout == "right":
+        return fill + ":in_w-out_w:0,setsar=1[v0];"
+    if layout == "fit":
+        return f"[0:v]fps={config.OUT_FPS},scale={W}:{fg_h},pad={W}:{H}:0:(oh-ih)/2:black,setsar=1[v0];"
+    if layout == "split":
+        half = f"scale={W}:{H // 2}:force_original_aspect_ratio=increase,crop={W}:{H // 2}"
+        return (f"[0:v]fps={config.OUT_FPS},split=2[l][r];[l]crop=iw/2:ih:0:0,{half}[t];"
+                f"[r]crop=iw/2:ih:iw/2:0,{half}[u];[t][u]vstack,setsar=1[v0];")
+    return (f"[0:v]fps={config.OUT_FPS},split=2[a][b];"
+
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
             f"[b]scale={W}:{fg_h}:force_original_aspect_ratio=increase,crop={W}:{fg_h}[fg];"
@@ -357,14 +378,15 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     # break the filter syntax).
     work = Path(tempfile.mkdtemp(prefix="pk"))
     try:
+        meta = {"title": clip.get("title") or "", "description": clip.get("description") or "", "comment": clip.get("description") or ""}
         return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, srt=srt, face=face,
-                          is_live=is_live)
+                          is_live=is_live, meta=meta)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
 def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, srt: str = "", face=None,
-               is_live: bool = False) -> dict:
+               is_live: bool = False, meta=None) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / f"{name}.srt").write_text(srt, encoding="utf-8")
@@ -374,14 +396,8 @@ def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layo
     dur = end - start
     if is_live:
         # Live clips come from a short concat .ts file built from stream buffer segments.
-        # Those segments carry the stream's wall-clock PTS (not 0-based).  After a coarse
-        # pre-input seek (-ss) ffmpeg lands video at the nearest video keyframe and audio at
-        # the nearest audio frame independently, so their PTS baselines can differ by a second
-        # or two — audio ends up ahead of the picture.
-        #
-        # Because the src file is short (clip + a few seconds of padding, never more than
-        # a few minutes), we simply decode from the beginning and trim to the exact start/end.
-        # This is slower than a coarse seek by a few seconds at most, but always frame-perfect.
+        # Those segments carry the stream's wall-clock PTS (not 0-based). Decode from the beginning
+        # and trim to the exact wall-clock start/end so live video and audio stay aligned.
         fc = (f"[0:v]trim=start={start:.2f}:end={end:.2f},setpts=PTS-STARTPTS,"
               + _filter(layout, fg_h, face)
               + f"[v0]ass={name}.ass:fontsdir=f[v];"
@@ -389,10 +405,7 @@ def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layo
               f"aresample=async=1000:first_pts=0,loudnorm=I=-14:TP=-1.5:LRA=11[a]")
         inp = ["-i", str(src.resolve())]
     else:
-        # For pre-recorded (downloaded) videos the file may be hours long.  A coarse seek jumps
-        # near the clip, then the trim filter cuts the last 10 seconds to the exact frame.
-        # Both streams start from the same position after a keyframe-aligned seek on a regular
-        # mp4/mkv, so there is no PTS drift risk here.
+        # Pre-recorded videos may be hours long, so seek near the clip and trim locally.
         coarse = start - 10.0 if start > 15.0 else 0.0
         v_start = 10.0 if start > 15.0 else start
         v_end = v_start + dur
@@ -406,6 +419,9 @@ def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layo
             "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
             "-fps_mode", "cfr", "-r", str(config.OUT_FPS),
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt"]
+    for k, v in (meta or {}).items():
+        if v:
+            base += ["-metadata", f"{k}={v}"]
     encoders = []
     if _qsv_ok is not False:
         encoders.append(("qsv", ["nv12", "-c:v", "h264_qsv", "-global_quality", "23", "-preset", "fast"]))
