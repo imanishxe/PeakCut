@@ -23,8 +23,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 from . import admin as admins
 from . import account, load
-from . import (accounts, ai, alerts, auth, brain, config, creators, ctx, db, jobs, live, media, posting,
-               profiles, render, safe, transcribe, usage)
+from . import (accounts, ai, alerts, auth, billing, brain, config, creators, ctx, db, error_reports, jobs, live,
+               media, posting, profiles, render, safe, transcribe, usage)
 
 from . import tools as _tools  # noqa: E402
 
@@ -38,7 +38,8 @@ def _quiet(fn):
 
 app = FastAPI(title="PeakCut", docs_url=None, redoc_url=None, openapi_url=None)
 WEB = config.ROOT / "web"
-OPEN = ("/api/auth/", "/pub/", "/api/public", "/auth/google/", "/auth/verify", "/brand/", "/assets/", "/healthz", "/favicon.ico", "/robots.txt", "/sitemap.xml")
+OPEN = ("/api/auth/", "/pub/", "/api/public", "/api/billing/webhook", "/auth/google/", "/auth/verify",
+        "/brand/", "/assets/", "/healthz", "/favicon.ico", "/robots.txt", "/sitemap.xml")
 PAGES = {"/": "landing.html", "/login": "auth.html", "/signup": "auth.html", "/reset": "reset.html",
          "/privacy": "legal.html", "/terms": "legal.html", "/acceptable-use": "legal.html"}
 VIDEO_TYPES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ts", ".flv"}
@@ -98,7 +99,9 @@ class Gate:
             await resp(scope, receive, send)
 
         if method not in ("GET", "HEAD", "OPTIONS"):
-            if not _from_here(req):
+            # Payment webhooks come from Stripe's servers, which cannot send a browser Origin; their HMAC
+            # signature is checked in the route instead. Every existing path keeps the same-origin rule.
+            if path != "/api/billing/webhook" and not _from_here(req):
                 return await deny(403, "Cross-site requests are not allowed.")
             # Only the upload may be big. Everything else is a small form, and is cut off at 256 KB whatever its
             # headers claim, so nobody can fill the server's memory by posting junk (signed in or not).
@@ -1725,6 +1728,74 @@ def admin_delete_user(request: Request, uid: str, body: dict = Body(...)):
     with db.engine.begin() as c:
         admins._log(c, me_.id, "delete", target.id, "account deleted")
     return {"ok": True}
+
+
+
+# ================================================================ billing (optional, operator configured)
+# Every route here is for the signed-in owner of the account. Only the webhook is public, and it is protected
+# by Stripe's HMAC signature instead of a session. No key is ever sent to the browser.
+@app.get("/api/billing/plans")
+def billing_plans():
+    try:
+        return billing.catalogue()
+    except billing.BillingError as e:
+        raise HTTPException(e.status, str(e))
+
+
+@app.get("/api/billing/subscription")
+def billing_subscription(request: Request):
+    try:
+        return billing.subscription(_me(request).id)
+    except billing.BillingError as e:
+        raise HTTPException(e.status, str(e))
+
+
+@app.post("/api/billing/checkout")
+def billing_checkout(request: Request, body: dict = Body(default=None)):
+    me_ = _me(request)
+    plan = str((body or {}).get("plan") or (body or {}).get("plan_id") or "")
+    try:
+        return billing.checkout(me_.id, getattr(me_, "email", ""), plan)
+    except billing.BillingError as e:
+        raise HTTPException(e.status, str(e))
+
+
+@app.post("/api/billing/webhook")
+async def billing_webhook(request: Request):
+    try:
+        result = billing.handle_event(await request.body(), request.headers.get("stripe-signature", ""))
+    except billing.BillingError as e:
+        raise HTTPException(e.status, str(e))
+    if result.get("user_id"):
+        ctx.bump(result["user_id"])          # the owner's page picks up the new entitlement at once
+    return result
+
+
+@app.post("/api/billing/cancel")
+def billing_cancel(request: Request):
+    try:
+        return billing.cancel(_me(request).id)
+    except billing.BillingError as e:
+        raise HTTPException(e.status, str(e))
+
+
+# ================================================================ consent-based error reports
+@app.post("/api/error-report")
+def error_report(request: Request, body: dict = Body(...)):
+    if not config.ERROR_REPORTING:
+        raise HTTPException(404)
+    try:
+        return error_reports.submit(_me(request).id, body)
+    except error_reports.Refused as e:
+        raise HTTPException(400, str(e))
+    except auth.AuthError:
+        raise HTTPException(429, "You've sent a lot of reports in the last hour. Try again a bit later.")
+
+
+@app.get("/api/admin/error-reports")
+def admin_error_reports(request: Request):
+    _admin(request)
+    return error_reports.listing()
 
 
 def main():

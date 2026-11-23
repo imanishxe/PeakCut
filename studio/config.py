@@ -256,6 +256,36 @@ def _read_google_client() -> tuple:
     return "", ""
 
 
+# ---------------------------------------------------------------- billing (optional, operator configured)
+# Stripe is the only provider wired up. Nothing is charged, and no checkout is offered, until an operator supplies
+# the keys here (directly or in files). These values are NEVER written into the code or into the data folder.
+BILLING_PROVIDER = env("PEAKCUT_BILLING_PROVIDER", "").strip().lower()   # "stripe" turns the billing layer on
+BILLING_PUBLISHABLE_KEY = env("PEAKCUT_BILLING_PUBLISHABLE_KEY", "").strip()  # safe to send to the browser
+BILLING_API_BASE = "https://api.stripe.com"      # fixed: checkout and cancellations only ever go to Stripe, over HTTPS
+BILLING_WEBHOOK_TOLERANCE = max(30, int(env("PEAKCUT_BILLING_WEBHOOK_TOLERANCE", "300") or 300))
+# Paid plans. The simple form names Stripe price ids; the JSON form describes whole plans (see .env.example).
+BILLING_PLANS_JSON = env("PEAKCUT_BILLING_PLANS", "").strip()
+BILLING_PRICE_STARTER = env("PEAKCUT_BILLING_PRICE_STARTER", "").strip()
+BILLING_PRICE_PRO = env("PEAKCUT_BILLING_PRICE_PRO", "").strip()
+BILLING_PRICE_STUDIO = env("PEAKCUT_BILLING_PRICE_STUDIO", "").strip()
+BILLING_CURRENCY = env("PEAKCUT_BILLING_CURRENCY", "usd").strip().lower()[:3]
+BILLING_STARTER_AMOUNT = int(env("PEAKCUT_BILLING_STARTER_AMOUNT", "900") or 900)   # smallest currency unit
+BILLING_PRO_AMOUNT = int(env("PEAKCUT_BILLING_PRO_AMOUNT", "2900") or 2900)
+BILLING_STUDIO_AMOUNT = int(env("PEAKCUT_BILLING_STUDIO_AMOUNT", "7900") or 7900)
+
+
+def billing_secret() -> str:
+    """The Stripe secret key, from the environment or a file named by PEAKCUT_BILLING_SECRET_KEY_FILE."""
+    return _secret("PEAKCUT_BILLING_SECRET_KEY", "PEAKCUT_BILLING_SECRET_KEY_FILE", r"\S{8,}")
+
+
+def billing_webhook_secret() -> str:
+    return _secret("PEAKCUT_BILLING_WEBHOOK_SECRET", "PEAKCUT_BILLING_WEBHOOK_SECRET_FILE", r"\S{8,}")
+
+
+# ---------------------------------------------------------------- consent-based error reports
+ERROR_REPORTING = env("PEAKCUT_ERROR_REPORTING", "1") != "0"
+
 # ---------------------------------------------------------------- video
 MAX_SOURCE_HEIGHT = 1080
 OUT_W, OUT_H, OUT_FPS = 1080, 1920, 30

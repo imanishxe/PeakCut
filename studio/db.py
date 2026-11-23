@@ -112,7 +112,48 @@ admin_log = sa.Table(                                                         # 
 )
 
 
+billing_customers = sa.Table(                                     # one Stripe customer per account (optional layer)
+    "billing_customers", meta,
+    sa.Column("user_id", sa.String(40), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    sa.Column("stripe_customer_id", sa.String(80), nullable=False, unique=True),
+    sa.Column("created_at", sa.Float, nullable=False),
+)
+billing_subscriptions = sa.Table(                                 # only written from verified Stripe webhook events
+    "billing_subscriptions", meta,
+    sa.Column("user_id", sa.String(40), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    sa.Column("plan_id", sa.String(40), nullable=False, server_default="free"),
+    sa.Column("status", sa.String(30), nullable=False, server_default="inactive", index=True),
+    sa.Column("stripe_customer_id", sa.String(80)),
+    sa.Column("stripe_subscription_id", sa.String(80), unique=True),
+    sa.Column("stripe_price_id", sa.String(80)),
+    sa.Column("current_period_end", sa.Float),
+    sa.Column("cancel_at_period_end", sa.Boolean, nullable=False, server_default=sa.false()),
+    sa.Column("created_at", sa.Float, nullable=False),
+    sa.Column("updated_at", sa.Float, nullable=False),
+    sa.Column("canceled_at", sa.Float),
+)
+billing_events = sa.Table(                                        # Stripe event ids: each is applied at most once
+    "billing_events", meta,
+    sa.Column("id", sa.String(120), primary_key=True),
+    sa.Column("type", sa.String(60), nullable=False),
+    sa.Column("user_id", sa.String(40)),
+    sa.Column("created_at", sa.Float, nullable=False),
+    sa.Column("processed_at", sa.Float),
+)
+
+error_reports = sa.Table(                                         # index of consented reports; full copy is a JSON file
+    "error_reports", meta,
+    sa.Column("id", sa.String(40), primary_key=True),
+    sa.Column("user_id", sa.String(40), sa.ForeignKey("users.id", ondelete="SET NULL"), index=True),
+    sa.Column("t", sa.Float, nullable=False, index=True),
+    sa.Column("action", sa.String(200), nullable=False, server_default=""),
+    sa.Column("store", sa.String(120), nullable=False, server_default=""),   # file name in data/error-reports/
+    sa.Column("payload", sa.Text, nullable=False),                          # already scrubbed, never raw
+)
+
+
 def init():
+    """Create tables added after an install as well as the original ones; this only ever adds tables."""
     meta.create_all(engine)
 
 
