@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Features — PeakCut: AI clip maker for live streams</title>
+<meta name="description" content="Explore PeakCut's live clipping, AI moment scoring, word-by-word captions, vertical reframing, posting and AI usage tracking.">
+<meta name="theme-color" content="#FF8B33">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PeakCut">
+<meta property="og:title" content="Features — PeakCut: AI clip maker for live streams">
+<meta property="og:description" content="Explore PeakCut's live clipping, AI moment scoring, word-by-word captions, vertical reframing, posting and AI usage tracking.">
+<link rel="icon" type="image/svg+xml" href="/brand/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>document.documentElement.classList.add("js")</script>
+<style>
+:root{--brand:#FF8B33;--brand-hi:#FF9A4C;--brand-press:#F27A1F;--brand-ink:#2A1A12;--brand-soft:#FFF2E8;--brand-line:#FFD9BC;--brand-deep:#A9480A;
+ --frame:#1E1612;--frame-2:#2C221D;--frame-line:rgba(255,255,255,.10);--frame-text:#F4EEEA;--frame-dim:#A99A91;
+ --bg:#FFFFFF;--muted:#F7F4F1;--line:#EEE8E4;--line-2:#E1D9D3;--text:#211813;--dim:#6D6159;--faint:#A0948C;
+ --good:#0F8A57;--good-soft:#E6F6EE;--bad:#D3343F;--bad-soft:#FDECEE;--live:#E5323F;
+ --r-lg:16px;--r:12px;--r-sm:8px;--ease:cubic-bezier(.2,.7,.2,1);
+ --s-1:4px;--s-2:8px;--s-3:12px;--s-4:16px;--s-6:24px;--s-8:32px;--s-12:48px;--s-16:64px;--s-24:96px;
+ --btn-sm:38px;--btn:44px;--btn-lg:52px;--nav-h:64px;
+ --shadow-card:0 1px 2px rgba(42,26,18,.05),0 10px 28px rgba(42,26,18,.06);color-scheme:light}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 "Geist","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+img,video{max-width:100%;display:block}
+svg{width:18px;height:18px;flex:none;fill:currentColor}
+a{color:inherit}
+button,input{font:inherit}
+:focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+[id]{scroll-margin-top:96px}
+h1,h2,h3,p{margin:0}
+h1,h2{text-wrap:balance}
+h1{font-size:clamp(42px,6vw,76px);line-height:1.04;letter-spacing:-.05em;font-weight:700}
+h2{font-size:clamp(28px,3.4vw,42px);line-height:1.1;letter-spacing:-.04em;font-weight:600;color:var(--brand-ink)}
+h3{font-size:19px;line-height:1.3;letter-spacing:-.02em;font-weight:600;color:var(--brand-ink)}
+p{color:var(--dim)}
+.wrap{width:min(100% - 48px,1180px);margin-inline:auto}
+section{padding:clamp(64px,8vw,104px) 0;position:relative}
+.section-head{max-width:740px;margin-bottom:36px}
+.section-head.center{text-align:center;margin-inline:auto}
+.kicker{font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--brand-deep);margin-bottom:14px}
+.sub{color:var(--dim);font-size:clamp(16px,1.5vw,18px);margin-top:14px;max-width:640px}
+.section-head.center .sub{margin-inline:auto}
+.split-head{display:flex;align-items:end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.split-head .sub{margin-top:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;height:var(--btn);padding:0 var(--s-6);border:1px solid var(--line-2);
+ border-radius:var(--r);background:#fff;color:var(--text);font:inherit;font-weight:600;font-size:15px;text-decoration:none;white-space:nowrap;cursor:pointer;
+ transition:background-color .18s ease,border-color .18s ease,color .18s ease,transform .18s var(--ease)}
+.btn:hover{background:var(--muted);border-color:#D4CAC3}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+.btn.primary:hover{background:var(--brand-hi);border-color:var(--brand-hi)}
+.btn.dark{background:var(--brand-ink);border-color:var(--brand-ink);color:#fff}
+.btn.dark:hover{background:var(--frame-2);border-color:var(--frame-2)}
+.btn.ghost{background:transparent;border-color:rgba(255,255,255,.26);color:#fff}
+.btn.ghost:hover{background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.45)}
+.btn.sm{height:var(--btn-sm);padding:0 var(--s-4);font-size:14px}
+.btn.lg{height:var(--btn-lg);padding:0 28px;font-size:16px;border-radius:999px}
+.btn.cta{border-radius:999px}
+.btn:disabled,.btn[aria-disabled="true"]{opacity:.5;cursor:not-allowed;pointer-events:none;transform:none}
+.btn svg{width:17px;height:17px}
+.cta-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cta-row.center{justify-content:center}
+.textlink{display:inline-flex;align-items:center;gap:7px;font-weight:600;color:var(--brand-deep);text-decoration:none}
+.textlink:hover{text-decoration:underline}
+.textlink svg{width:16px;height:16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s-6);box-shadow:var(--shadow-card)}
+.grid{display:grid;gap:var(--s-6)}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.card h3{margin-bottom:10px}
+.card p{font-size:15px}
+.card .icon{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;background:var(--brand-soft);color:var(--brand-deep);margin-bottom:18px}
+.card .icon svg{width:21px;height:21px}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.02em;background:var(--brand-soft);color:var(--brand-deep)}
+.tag.neutral{background:var(--muted);color:var(--dim)}
+.tag.good{background:var(--good-soft);color:var(--good)}
+.tag.live{background:var(--bad-soft);color:var(--bad)}
+.tag.live i{width:7px;height:7px;border-radius:50%;background:var(--live);animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.3}}
+.note{border-left:3px solid var(--brand);background:var(--muted);border-radius:0 var(--r) var(--r) 0;padding:16px 20px;color:var(--dim);font-size:15px}
+.note b{color:var(--brand-ink)}
+.skip{position:absolute;left:-9999px;top:8px;z-index:100;background:#fff;color:var(--brand-ink);padding:10px 16px;border-radius:var(--r);font-weight:600}
+.skip:focus{left:12px}
+header.nav{position:fixed;inset:0 0 auto;z-index:60;transform:translateY(-110%);transition:transform .32s var(--ease),background-color .2s ease,border-color .2s ease;
+ background:rgba(255,255,255,.82);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);
+ border-bottom:1px solid rgba(42,26,18,.08);color:var(--text)}
+header.nav.show,header.nav.mopen,header.nav:focus-within{transform:none}
+header.nav .wrap{display:flex;align-items:center;gap:20px;height:var(--nav-h)}
+header.nav .brand img{height:34px;width:auto;display:block}
+header.nav nav{display:flex;gap:2px;flex:1;justify-content:center}
+header.nav nav a{display:inline-flex;align-items:center;height:38px;padding:0 14px;border-radius:var(--r-sm);text-decoration:none;font-size:15px;font-weight:500;color:var(--dim);white-space:nowrap;transition:background-color .16s ease,color .16s ease}
+header.nav nav a:hover,header.nav nav a[aria-current="page"]{color:var(--brand-ink);background:var(--muted)}
+.navactions{display:flex;align-items:center;gap:10px}
+.navsignin{display:inline-flex;align-items:center;height:38px;padding:0 12px;border-radius:var(--r-sm);color:var(--brand-ink);font-size:15px;font-weight:500;text-decoration:none;white-space:nowrap}
+.navsignin:hover{background:var(--muted)}
+.navtoggle{display:none;width:44px;height:44px;place-items:center;margin-left:auto;border:1px solid var(--line-2);border-radius:10px;background:#fff;cursor:pointer;color:var(--brand-ink)}
+.bars{display:grid;gap:5px;width:20px}
+.bars i{display:block;height:2px;border-radius:2px;background:currentColor;transition:transform .22s var(--ease),opacity .22s ease}
+header.nav.mopen .bars i:first-child{transform:translateY(7px) rotate(45deg)}
+header.nav.mopen .bars i:nth-child(2){opacity:0}
+header.nav.mopen .bars i:last-child{transform:translateY(-7px) rotate(-45deg)}
+.page-hero{position:relative;overflow:hidden;background:var(--frame);color:var(--frame-text);padding:calc(var(--nav-h) + clamp(64px,9vw,120px)) 0 clamp(64px,8vw,104px)}
+.page-hero::before{content:"";position:absolute;inset:-30% -10% auto auto;width:780px;height:780px;background:radial-gradient(circle,rgba(255,139,51,.20),transparent 62%);pointer-events:none}
+.page-hero::after{content:"";position:absolute;inset:auto auto -60% -10%;width:640px;height:640px;background:radial-gradient(circle,rgba(255,139,51,.09),transparent 65%);pointer-events:none}
+.page-hero .wrap{position:relative;z-index:1}
+.page-hero h1{max-width:900px;color:#fff}
+.page-hero h1 .hl{color:var(--brand)}
+.page-hero .lede{max-width:670px;margin-top:20px;color:var(--frame-dim);font-size:clamp(16px,1.6vw,19px)}
+.page-hero .kicker{color:var(--brand)}
+.page-hero .cta-row{margin-top:32px}
+.hero-facts{display:flex;gap:10px 26px;flex-wrap:wrap;margin-top:30px;font-size:14px;color:var(--frame-dim)}
+.hero-facts span{display:inline-flex;align-items:center;gap:8px}
+.hero-facts svg{width:16px;height:16px;color:var(--brand)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-lg);background:#fff;box-shadow:var(--shadow-card)}
+table{width:100%;border-collapse:collapse;font-size:15px;min-width:600px}
+th,td{text-align:left;padding:16px 20px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);font-weight:600}
+tbody th{font-weight:600;color:var(--brand-ink);width:24%}
+tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}
+td b{color:var(--brand-ink)}
+.yes{color:var(--good);font-weight:600}
+.no{color:var(--faint)}
+.faqgrid{display:grid;grid-template-columns:.8fr 1.2fr;gap:48px}
+details{border-top:1px solid var(--line);padding:16px 0}
+details:last-child{border-bottom:1px solid var(--line)}
+summary{cursor:pointer;font-weight:600;font-size:16px;color:var(--brand-ink);list-style:none;display:flex;justify-content:space-between;gap:14px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";color:var(--faint);font-weight:400;font-size:24px;line-height:1;transition:transform .25s var(--ease)}
+details[open] summary::after{transform:rotate(45deg)}
+details p{margin-top:12px;font-size:15px}
+.closing{text-align:center;background:radial-gradient(ellipse 70% 90% at 50% 100%,#FFEBDA 0%,#FFF8F2 55%,#fff 85%);border-top:1px solid var(--line)}
+.closing h2{margin-inline:auto;max-width:760px}
+.closing .sub{margin-inline:auto}
+.closing .cta-row{margin-top:8px}
+.js .reveal{opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease),transform .7s var(--ease);transition-delay:var(--d,0s)}
+.js .reveal.in{opacity:1;transform:none}
+footer.site{background:var(--frame);color:#B9A597;padding:60px 0 26px;font-size:14px}
+footer.site .fwrap{max-width:1180px;margin-inline:auto;padding:0 24px}
+footer.site .fgrid{display:grid;grid-template-columns:1.5fr 1fr 1fr 1.2fr;gap:32px}
+footer.site .fbrand img{height:32px;width:auto;display:block;margin-bottom:16px}
+footer.site .fbrand p{max-width:300px;line-height:1.65;margin-bottom:18px;color:#B9A597}
+footer.site h4{font-size:13px;font-weight:600;color:#fff;margin:4px 0 14px}
+footer.site ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
+footer.site ul a{color:#B9A597;text-decoration:none;transition:color .15s ease}
+footer.site ul a:hover{color:var(--brand)}
+footer.site .fbottom{display:flex;justify-content:space-between;gap:10px 24px;flex-wrap:wrap;margin-top:44px;padding-top:20px;border-top:1px solid rgba(255,255,255,.10);font-size:13px;color:#8C7B70}
+footer.site .fbottom a{color:#B9A597;text-decoration:none}
+footer.site .fbottom a:hover{color:var(--brand)}
+@media (max-width:1100px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:960px){
+ header.nav nav{position:absolute;top:100%;left:0;right:0;display:none;flex-direction:column;align-items:stretch;gap:2px;padding:10px 24px 18px;
+  background:rgba(255,255,255,.97);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);
+  border-bottom:1px solid var(--line);box-shadow:0 18px 34px rgba(42,26,18,.10)}
+ header.nav.mopen nav{display:flex}
+ header.nav nav a{height:auto;padding:12px 10px}
+ .navtoggle{display:grid}
+ .navsignin{display:none}
+ .g3{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .faqgrid{grid-template-columns:1fr;gap:24px}
+ footer.site .fgrid{grid-template-columns:1fr 1fr}
+ footer.site .fbrand{grid-column:1/-1}
+}
+@media (max-width:700px){
+ section{padding:64px 0}
+ .g2,.g3,.g4{grid-template-columns:1fr}
+ .wrap{width:min(100% - 36px,1180px)}
+ h1{font-size:clamp(38px,10vw,56px)}
+ h2{font-size:clamp(28px,7vw,36px)}
+ .split-head{align-items:start}
+ .tablewrap th,.tablewrap td{padding:13px 14px}
+}
+@media (max-width:520px){
+ .cta-row .btn,.cta-row .textlink{width:100%}
+ .page-hero{padding-top:calc(var(--nav-h) + 56px)}
+ .hero-facts{gap:8px 16px}
+ footer.site .fgrid{grid-template-columns:1fr 1fr;gap:26px 18px}
+ footer.site .fbottom{margin-top:32px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}.js .reveal{opacity:1;transform:none}}
+</style>
+<style>
+.pipeline{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:36px;counter-reset:pipe}
+.pipeline article{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 18px;box-shadow:var(--shadow-card)}
+.pipeline .num{width:36px;height:36px;font-size:12px;margin-bottom:16px}
+.pipeline h3{font-size:16px}
+.pipeline p{font-size:14px}
+.pipeline article:last-child{border-color:var(--brand-line);background:var(--brand-soft)}
+.fgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:10px}
+.fgrid .card{min-height:260px;display:flex;flex-direction:column}
+.fgrid .card .art{margin-top:auto;padding-top:22px}
+.fgrid .wide{grid-column:span 2}
+.shot{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:var(--r);background:var(--frame)}
+.stylecards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:32px}
+.stylecards article{background:var(--frame);border-radius:var(--r-lg);padding:16px;border:1px solid var(--frame-line)}
+.stylecards video{width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:var(--r);background:#100B08}
+.stylecards h3{color:#fff;margin-top:16px}
+.stylecards p{color:var(--frame-dim);font-size:14px;margin-top:6px}
+.stylecards .tag{margin-top:12px}
+.darkband{background:var(--frame);color:var(--frame-text)}
+.darkband h2{color:#fff}
+.darkband h2 span{color:var(--frame-dim)}
+.darkband p{color:var(--frame-dim)}
+.darkband .card{background:var(--frame-2);border-color:var(--frame-line);box-shadow:none}
+.darkband .card h3{color:#fff}
+.darkband .card .icon{background:rgba(255,139,51,.14);color:var(--brand)}
+.checklist{list-style:none;padding:0;margin:24px 0 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 28px}
+.checklist li{display:flex;gap:10px;align-items:flex-start;color:var(--dim);font-size:15px}
+.checklist svg{width:18px;height:18px;color:var(--good);margin-top:3px}
+@media (max-width:1100px){.pipeline{grid-template-columns:repeat(2,minmax(0,1fr))}.fgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:700px){.pipeline,.fgrid,.stylecards{grid-template-columns:1fr}.fgrid .wide{grid-column:auto}.checklist{grid-template-columns:1fr}}
+.navmobilecta{display:none}
+@media (max-width:960px){
+ header.nav .navactions{display:none}
+ header.nav nav .navmobilecta{display:inline-flex!important;width:100%;margin:8px 0 2px}
+ header.nav .navtoggle{margin-left:auto;order:3}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav" id="nav"><div class="wrap">
+  <a class="brand" href="/" aria-label="PeakCut home"><img src="/brand/logo.svg" alt="PeakCut" width="126" height="35"></a>
+  <nav id="navlinks" aria-label="Main navigation">
+    <a href="/features">Features</a><a href="/billing">Billing &amp; Plans</a><a href="/guides">Guides</a><a href="/whats-new">What's new</a>
+    <a class="btn primary sm navmobilecta" href="/signup" data-auth="up">Get started free</a>
+  </nav>
+  <div class="navactions"><a class="navsignin" href="/login" data-auth="in">Sign in</a><a class="btn primary sm cta" href="/signup" data-auth="up">Get started free</a></div>
+  <button class="navtoggle" id="navtoggle" type="button" aria-label="Open menu" aria-controls="navlinks" aria-expanded="false"><span class="bars" aria-hidden="true"><i></i><i></i><i></i></span></button>
+</div></header>
+<main id="main">
+
+
+<section class="page-hero"><div class="wrap">
+  <p class="kicker">Features</p>
+  <h1 class="reveal">Everything you need to turn <span class="hl">long video into clips.</span></h1>
+  <p class="lede reveal">PeakCut handles the tedious middle: watching hours of footage, finding the moment, cutting it vertically, timing the captions and writing the post. You keep the final say.</p>
+  <div class="cta-row reveal"><a class="btn primary lg" href="/signup">Get clips free<svg viewBox="0 0 256 256" aria-hidden="true"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a><a class="btn ghost lg" href="/features">Explore features</a></div>
+  <div class="hero-facts reveal"><span><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>Live and replay clipping</span><span><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>Three caption styles</span><span><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>Your own AI provider</span></div>
+</div></section>
+
+
+<section><div class="wrap">
+ <div class="section-head reveal"><p class="kicker">The workflow</p><h2>From source link to scheduled post.</h2><p class="sub">Every stage is visible and editable. Nothing is a black box you have to trust.</p></div>
+ <div class="pipeline">
+  <article class="reveal"><span class="num">01</span><h3>Collect</h3><p>Paste a link, upload a file, or add a streamer to watch for live streams.</p></article>
+  <article class="reveal" style="--d:.05s"><span class="num">02</span><h3>Transcribe</h3><p>Speech to text on your own machine, so your footage stays with you.</p></article>
+  <article class="reveal" style="--d:.1s"><span class="num">03</span><h3>Judge</h3><p>Words and reactions scored separately; clips are made when they agree.</p></article>
+  <article class="reveal" style="--d:.15s"><span class="num">04</span><h3>Render</h3><p>Vertical 9:16 with word-by-word captions, a hook and your chosen style.</p></article>
+  <article class="reveal" style="--d:.2s"><span class="num">05</span><h3>Publish</h3><p>Review, trim, download or queue to YouTube Shorts and Instagram Reels.</p></article>
+ </div>
+</div></section>
+
+<section style="background:var(--muted);border-block:1px solid var(--line)"><div class="wrap">
+ <div class="section-head reveal"><p class="kicker">What you get</p><h2>Built around the way clipping actually works.</h2></div>
+ <div class="fgrid">
+  <article class="card reveal wide"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Two independent judges, one decision</h3><p>A text judge reads the transcript. A reaction judge watches loudness and chat activity during live streams. PeakCut cuts a clip when both see a moment, which is why the results read as highlights rather than noise.</p>
+   <div class="art"><div class="flow" style="display:flex;gap:8px;flex-wrap:wrap"><span class="tag">Words judge</span><span class="tag neutral">Reaction judge</span><span class="tag good">Agreement = clip</span></div></div></article>
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Works before the stream ends</h3><p>Live watch records the last stretch of a stream, checks it as often as every minute and produces clips while the creator is still talking.</p><span class="tag live"><i></i> Live</span></article>
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Replays and uploads too</h3><p>YouTube, Twitch and Kick links or your own video file. Add several sources and each keeps its own set of clips.</p></article>
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Word-by-word captions</h3><p>Captions are timed to the voice, with key words highlighted and a hook line above the clip. Three styles: Bounce, Hype and Clean.</p></article>
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Copy that ships with the clip</h3><p>Every clip gets a hook, title, description and hashtags, written from what was actually said. Reword any of them before posting.</p></article>
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Edit without starting over</h3><p>Trim the start and end, rewrite the copy, change the caption style or layout, then re-make the clip from the same source.</p></article>
+  <article class="card reveal wide"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Post straight to Shorts and Reels</h3><p>Queue approved clips for YouTube Shorts and Instagram Reels from the same workspace. Download keeps a local copy for everywhere else.</p>
+   <div class="art" style="display:flex;gap:10px;flex-wrap:wrap"><span class="tag neutral">YouTube Shorts</span><span class="tag neutral">Instagram Reels</span><span class="tag neutral">Download</span></div></article>
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Many creators, one server</h3><p>Give each creator their own workspace with separate style and posting settings. Useful for agencies and channels with several shows.</p></article>
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>AI usage you can read</h3><p>Each call is logged with creator, video and tokens. See what your key spent before you look at your provider's bill.</p></article>
+ </div>
+</div></section>
+
+<section><div class="wrap">
+ <div class="split-head reveal"><div><p class="kicker">Caption styles</p><h2>Three ways to make words land.</h2></div><p class="sub">These are real renders from PeakCut. Choose one per creator and every clip follows it.</p></div>
+ <div class="stylecards">
+  <article class="reveal"><video src="/brand/demo-bounce.mp4" poster="/brand/demo-bounce.jpg" autoplay muted loop playsinline preload="metadata" aria-label="Bounce caption style demo"></video><h3>Bounce</h3><p>Big, springy word pops with a highlighted key word.</p><span class="tag">Energetic streams</span></article>
+  <article class="reveal" style="--d:.08s"><video src="/brand/demo-hype.mp4" poster="/brand/demo-hype.jpg" autoplay muted loop playsinline preload="metadata" aria-label="Hype caption style demo"></video><h3>Hype</h3><p>Sharp, high-contrast captions for loud moments.</p><span class="tag">Gaming and reactions</span></article>
+  <article class="reveal" style="--d:.16s"><video src="/brand/demo-clean.mp4" poster="/brand/demo-clean.jpg" autoplay muted loop playsinline preload="metadata" aria-label="Clean caption style demo"></video><h3>Clean</h3><p>Quiet, readable captions that stay out of the way.</p><span class="tag">Interviews and podcasts</span></article>
+ </div>
+</div></section>
+
+<section class="darkband"><div class="wrap">
+ <div class="split-head reveal"><div><p class="kicker">Your key, your rules</p><h2>The AI is yours to choose. <span>So is the bill.</span></h2></div><p class="sub">Add a key for Gemini, OpenAI, Grok, Claude, OpenRouter or Groq; point at Ollama on your own machine; or use any OpenAI-compatible endpoint. Without a key, PeakCut still clips by loudness.</p></div>
+ <div class="grid g3" style="margin-top:32px">
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Custom endpoints</h3><p>Set your own base address, model list and key. Local models and self-hosted proxies work.</p></article>
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>Transcription stays local</h3><p>Audio is processed on the machine running PeakCut, not uploaded to a caption service.</p></article>
+  <article class="card reveal"><div class="icon"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg></div><h3>No PeakCut invoice</h3><p>There is no PeakCut subscription. You pay your AI provider directly for the calls you make.</p></article>
+ </div>
+ <div class="cta-row reveal" style="margin-top:30px"><a class="btn primary" href="/billing">See Billing &amp; Plans <svg viewBox="0 0 256 256" aria-hidden="true"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a><a class="btn ghost" href="/app/settings/ai">Configure an AI key</a></div>
+</div></section>
+
+<section><div class="wrap">
+ <div class="section-head reveal"><p class="kicker">Small details</p><h2>Everything stays adjustable.</h2></div>
+ <ul class="checklist reveal">
+  <li><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg> 9:16 framing with blurred fill, zoomed frame or centre crop</li>
+  <li><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg> Clip length range you set, 15–60 seconds by default</li>
+  <li><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg> Caption style and layout per creator</li>
+  <li><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg> Hook, title, description and hashtags you can rewrite</li>
+  <li><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg> Stable file preview and lossless trimming of start and end</li>
+  <li><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg> A separate workspace and posting rules for every creator</li>
+ </ul>
+</div></section>
+
+
+<section class="closing"><div class="wrap">
+  <p class="kicker">Start with one clip</p>
+  <h2 class="reveal">Ready when the next stream goes live?</h2>
+  <p class="sub reveal">Create a free account, add a source and let PeakCut find the first clip for you.</p>
+  <div class="cta-row center reveal" style="margin-top:26px">
+    <a class="btn primary lg" href="/signup">Get clips free <svg viewBox="0 0 256 256" aria-hidden="true"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>
+    <a class="btn lg" href="/guides">Read the guides</a>
+  </div>
+</div></section>
+
+
+</main>
+<footer class="site"><div class="fwrap">
+  <div class="fgrid">
+    <div class="fbrand"><a href="/" aria-label="PeakCut home"><img src="/brand/logo-light.svg" alt="PeakCut" width="128" height="36"></a>
+      <p>AI clipping for Twitch, Kick and YouTube streams. Captioned vertical clips while the stream is still live. Free and open source.</p>
+      <a class="btn primary sm" href="/signup">Get clips free</a></div>
+    <div><h4>Product</h4><ul>
+      <li><a href="/#how">How it works</a></li><li><a href="/features" aria-current="page">Features</a></li>
+      <li><a href="/#live">Live clipping</a></li><li><a href="/#open">Open source</a></li>
+      <li><a href="/billing">Billing &amp; Plans</a></li></ul></div>
+    <div><h4>Learn</h4><ul>
+      <li><a href="/guides">Guides</a></li><li><a href="/#faq">FAQ</a></li>
+      <li><a href="/whats-new">What's new</a></li><li><a href="/#compare">Why PeakCut</a></li></ul></div>
+    <div><h4>Account &amp; legal</h4><ul>
+      <li><a href="/signup">Create an account</a></li><li><a href="/login">Sign in</a></li><li><a href="/reset">Reset password</a></li>
+      <li><a href="/terms">Terms of Service</a></li><li><a href="/privacy">Privacy Policy</a></li><li><a href="/acceptable-use">Acceptable Use</a></li></ul></div>
+  </div>
+  <div class="fbottom"><span>© <span class="fy"></span> PeakCut</span>
+    <span>PixelDreamStudios — Engineered by Manish Nehra · <a href="https://manishnehra.vercel.app/" target="_blank" rel="noopener noreferrer">Portfolio</a></span></div>
+</div></footer>
+<script>
+document.querySelectorAll(".fy").forEach(e=>e.textContent=new Date().getFullYear());
+const navEl=document.getElementById("nav"),navToggle=document.getElementById("navtoggle");
+function syncNav(){navEl.classList.toggle("show",scrollY>24||navEl.classList.contains("mopen")||navEl.contains(document.activeElement));}
+function setMenu(open){navEl.classList.toggle("mopen",open);if(navToggle){navToggle.setAttribute("aria-expanded",String(open));navToggle.setAttribute("aria-label",open?"Close menu":"Open menu");}syncNav();}
+addEventListener("scroll",syncNav,{passive:true});addEventListener("resize",syncNav);syncNav();
+if(navToggle)navToggle.addEventListener("click",()=>setMenu(!navEl.classList.contains("mopen")));
+document.addEventListener("click",e=>{if(navEl.classList.contains("mopen")&&!navEl.contains(e.target))setMenu(false);});
+document.querySelectorAll("#navlinks a").forEach(a=>a.addEventListener("click",()=>setMenu(false)));
+addEventListener("keydown",e=>{if(e.key==="Escape"&&navEl.classList.contains("mopen")){setMenu(false);if(navToggle)navToggle.focus();}});
+const _waiting=[...document.querySelectorAll(".reveal")];
+function checkReveal(){const h=innerHeight||document.documentElement.clientHeight;for(let i=_waiting.length-1;i>=0;i--){if(_waiting[i].getBoundingClientRect().top<h*.94){_waiting[i].classList.add("in");_waiting.splice(i,1);}}}
+addEventListener("scroll",checkReveal,{passive:true});addEventListener("resize",checkReveal);addEventListener("load",checkReveal);
+try{const io=new IntersectionObserver(checkReveal,{threshold:[0,.1]});_waiting.forEach(e=>io.observe(e));}catch(e){}
+checkReveal();
+fetch("/api/auth/me").then(r=>r.json()).then(d=>{if(!d.user)return;
+ document.querySelectorAll('[data-auth="in"]').forEach(e=>e.remove());
+ document.querySelectorAll('[data-auth="up"]').forEach(e=>{e.href="/app";e.textContent="Open PeakCut";});
+}).catch(()=>{});
+</script>
+</body>
+</html>
