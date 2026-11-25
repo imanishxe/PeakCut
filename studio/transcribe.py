@@ -340,7 +340,7 @@ def clean_asr_words(words: list) -> list:
 
     for i, w in enumerate(clean):
         nxt = clean[i + 1]["s"] if i + 1 < len(clean) else w["e"] + 0.4
-        w["e"] = round(max(w["s"] + 0.08, min(nxt, max(w["e", w["s"] + 0.6))), 2)
+        w["e"] = round(max(w["s"] + 0.08, min(nxt, max(w["e"], w["s"] + 0.6))), 2)
 
     return clean
 
@@ -365,7 +365,7 @@ def transcribe_whisper(audio: np.ndarray, model_name: str = "base") -> list:
 
 
 def transcribe(audio: np.ndarray, on_progress=None, backend: str = None, lang: str = fetch_model.DEFAULT) -> list:
-    """Returns [{'w': word, 's': start_sec, 'e': end_sec}, ...] for the whole audio, heard as `lang`."""
+    """Returns [{'w': word, 's': start_sec, 'e': end_sec}, ...] for the whole audio, heard as `lang`.
     Speech is cut at quiet moments into 12-24 s pieces; silent pieces are skipped."""
     active_backend = (backend or BACKEND).lower()
     if active_backend == "whisper":
